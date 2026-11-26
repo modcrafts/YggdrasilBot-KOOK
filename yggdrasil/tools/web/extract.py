@@ -3,7 +3,7 @@
 import json
 import re
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from yggdrasil.tools.docs import clip_text, decode_text
 
@@ -11,6 +11,9 @@ from yggdrasil.tools.docs import clip_text, decode_text
 MIN_TEXT_CHARS = 200
 # Lines that are only stray punctuation (left over from stripped inline widgets).
 _JUNK_LINE_RE = re.compile(r"^[ \t]*[，。、：；！？,.:;!?·…]{1,3}[ \t]*(?:\n|$)", re.MULTILINE)
+# Pictures of a generic page: at most this many, and none declared smaller than _MIN_IMAGE_SIDE px (icons, avatars).
+MAX_PAGE_IMAGES = 8
+_MIN_IMAGE_SIDE = 160
 
 
 def extract_html(html: str, url: str) -> tuple[str, str]:
@@ -39,6 +42,77 @@ def extract_html(html: str, url: str) -> tuple[str, str]:
             text = fallback
         title = title or fallback_title
     return title.strip(), _JUNK_LINE_RE.sub("", text).strip()
+
+
+def page_images(html: str, url: str, limit: int = MAX_PAGE_IMAGES) -> tuple[list[str], list[str]]:
+    """``(urls, labels)`` of a page's pictures: ``og:image`` / ``twitter:image`` first, then ``<img>`` in document
+    order (largest ``srcset`` candidate, lazy ``data-src`` too), without inline data, SVG and images declared smaller
+    than ``_MIN_IMAGE_SIDE`` px. A label is the alt text and declared size, where the page gives them."""
+    import lxml.html
+    from lxml.etree import ParserError
+
+    try:
+        root = lxml.html.fromstring(html.encode(), parser=lxml.html.HTMLParser(encoding="utf-8"))
+    except (ParserError, ValueError):
+        return [], []
+    found: dict[str, str] = {}
+
+    def add(src: str, label: str) -> None:
+        full = urljoin(url, src.strip())
+        parts = urlsplit(full)
+        if parts.scheme in ("http", "https") and not parts.path.lower().endswith(".svg"):
+            found.setdefault(full, label)
+
+    og_alt = root.xpath("string(//meta[@property='og:image:alt']/@content)").strip()
+    for content in root.xpath(
+        "//meta[@property='og:image' or @property='og:image:url' or @name='twitter:image']/@content"
+    ):
+        add(str(content), " · ".join(x for x in ("页面主图", og_alt[:60]) if x))
+    for img in root.iter("img"):
+        width, height = _px(img.get("width")), _px(img.get("height"))
+        if (width and width < _MIN_IMAGE_SIDE) or (height and height < _MIN_IMAGE_SIDE):
+            continue
+        srcset = img.get("srcset") or img.get("data-srcset") or ""
+        # In a <picture> the <img> is often only a placeholder. libxml2 does not know <source> is void and nests what
+        # follows it, so look for the <picture> among the ancestors, not only the parent.
+        if (picture := next(img.iterancestors("picture"), None)) is not None:
+            sources = (s.get("srcset") or s.get("data-srcset") or "" for s in picture.iter("source"))
+            srcset = ", ".join(s for s in (*sources, srcset) if s)
+        src = _largest(srcset) or img.get("data-src") or img.get("data-original") or img.get("src") or ""
+        if src and not src.startswith("data:"):
+            size = f"{width}×{height}" if width and height else ""
+            add(src, " · ".join(x for x in ((img.get("alt") or "").strip()[:60], size) if x))
+    picked = list(found.items())[:limit]
+    return [u for u, _ in picked], [label for _, label in picked]
+
+
+def _px(value: str | None) -> int:
+    m = re.match(r"\s*(\d+)", value or "")
+    return int(m.group(1)) if m else 0
+
+
+_SRCSET_URL = re.compile(r"[\s,]*(\S+)")
+
+
+def _largest(srcset: str) -> str:
+    """The widest (``1920w``) or densest (``2x``) candidate of a ``srcset``, split as the HTML spec does: a URL runs to
+    whitespace (trailing commas end it, inner ones as in ``w_200,h_300`` stay), its descriptors to the next comma."""
+    best, best_size, pos = "", -1.0, 0
+    while m := _SRCSET_URL.match(srcset, pos):
+        url, pos, descriptor = m.group(1), m.end(), "1x"
+        if url.endswith(","):
+            url = url.rstrip(",")
+        else:
+            end = srcset.find(",", pos)
+            end = len(srcset) if end < 0 else end
+            descriptor, pos = (srcset[pos:end].split() or ["1x"])[0], end
+        try:
+            size = float(descriptor[:-1]) if descriptor[-1] in "wx" else 0.0
+        except ValueError:
+            size = 0.0
+        if url and size > best_size:
+            best, best_size = url, size
+    return best
 
 
 def _readability(html: str) -> tuple[str, str]:

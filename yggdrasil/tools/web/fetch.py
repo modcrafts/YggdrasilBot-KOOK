@@ -19,7 +19,7 @@ from yggdrasil.tools.errors import ToolError
 from yggdrasil.tools.ssrf import GuardedResponse, check_url, guarded_client, impersonated_stream
 from yggdrasil.tools.web.adapters import adapter_for
 from yggdrasil.tools.web.blocks import JS_CHALLENGES, detect_wall, is_challenge, raise_if_blocked, raise_if_wall
-from yggdrasil.tools.web.extract import MIN_TEXT_CHARS, extract_html, json_text
+from yggdrasil.tools.web.extract import MIN_TEXT_CHARS, extract_html, json_text, page_images
 from yggdrasil.tools.web.model import (
     MAX_HTML_BYTES,
     MB,
@@ -105,6 +105,9 @@ async def read_url(
         if cached is None:
             extracted = await _read(target, browser_url, remote, timeout, browser=browser)
             anchor = await asyncio.to_thread(find_anchor, extracted, fragment) if fragment else None
+            if extracted.html and not extracted.images:
+                found = await asyncio.to_thread(page_images, extracted.html, extracted.final_url)
+                extracted.images, extracted.image_labels = found
             extracted.html = ""
             cached = extracted, anchor
             _cache_put(key, extracted, anchor)
@@ -124,6 +127,7 @@ async def read_url(
         truncated=page < len(pages) or extracted.capped,
         via=extracted.via,
         images=extracted.images if page == 1 else [],
+        image_labels=extracted.image_labels if page == 1 else [],
     )
 
 

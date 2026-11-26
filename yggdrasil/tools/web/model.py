@@ -27,7 +27,9 @@ class PageResult:
     via: str
     """``http`` / ``browser`` / ``document:<kind>`` / adapter name (``bilibili``, ``github``, ``hackernews``, ...)."""
     images: list[str] = field(default_factory=list)
-    """Image URLs from the source (adapters only); the caller shows them with page 1."""
+    """Image URLs from the source (an adapter's, or a generic page's pictures); the caller shows them with page 1."""
+    image_labels: list[str] = field(default_factory=list)
+    """What each of ``images`` is (alt text, size) where the page says so; empty for adapters."""
 
 
 @dataclass(slots=True)
@@ -41,6 +43,7 @@ class Extracted:
     capped: bool = False
     images: list[str] = field(default_factory=list)
     """Image URLs that belong to the content (third-party: download them through the SSRF guard)."""
+    image_labels: list[str] = field(default_factory=list)
     html: str = field(default="", repr=False)
     """Source HTML (generic and browser tiers), for :func:`read_url` to find the URL's ``#fragment``; never cached."""
 

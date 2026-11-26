@@ -63,7 +63,8 @@ async def read_url(ctx: RunContext[Deps], url_or_handle: str, page: int = 1, bro
     """读取网页正文（支持分页）或本服务器可见的 KOOK 消息链接（kookapp.cn/direct/anchor/...）。
     参数可以是 URL、url#N / card#N 句柄，或聊天记录里的消息编号 #N（那条消息里的链接）。
     普通读取遇到验证页会自动换浏览器；读到的仍是验证页、空壳或缺了要靠 JavaScript 加载的内容时，用 browser=true
-    直接让真浏览器打开（会跑 JavaScript，慢几秒）。"""
+    直接让真浏览器打开（会跑 JavaScript，慢几秒）。网页里的图片注册成 img#N（附说明），可用 view_image 看，
+    也能作 generate_image 的参考图。"""
     from yggdrasil.runtime import snapshot
     from yggdrasil.tools.remote_fetch import remote_fetcher
     from yggdrasil.tools.web import read_url as _read
@@ -95,14 +96,21 @@ async def read_url(ctx: RunContext[Deps], url_or_handle: str, page: int = 1, bro
     )
     ctx.deps.notes.show(ctx.tool_call_id, page_info)
     more = _pages_note(res.page, res.pages, capped=res.truncated)
-    return f"标题：{res.title}\n地址：{res.final_url}{more}\n\n{res.text}{_image_handles(ctx, res.images, 'web')}"
+    images = _image_handles(ctx, res.images, "web", res.image_labels)
+    return f"标题：{res.title}\n地址：{res.final_url}{more}\n\n{res.text}{images}"
 
 
-def _image_handles(ctx: RunContext[Deps], urls: list[str], source: str) -> str:
-    """Register third-party image URLs (numbered 图 1, 图 2, ... in the text) as img#N handles; the line to append."""
+def _image_handles(ctx: RunContext[Deps], urls: list[str], source: str, labels: list[str] | None = None) -> str:
+    """Register third-party image URLs as img#N handles; the line to append. 图 N is the numbering in the text
+    (X posts); a generic page's pictures carry a label instead (alt text, size)."""
     keys = [ctx.deps.handles.add("image", {"url": url, "source": source}) for url in urls]
-    shown = "、".join(f"图 {i} = {key}" for i, key in enumerate(keys, 1) if key)
-    return f"\n\n图片句柄（用 view_image 查看）：{shown}" if shown else ""
+    labels = labels or []
+    shown = "、".join(
+        f"图 {i} = {key}" + (f"（{labels[i - 1]}）" if i <= len(labels) and labels[i - 1] else "")
+        for i, key in enumerate(keys, 1)
+        if key
+    )
+    return f"\n\n图片句柄（用 view_image 查看，也能作 generate_image 的参考图）：{shown}" if shown else ""
 
 
 def _pages_note(page: int, pages: int, *, capped: bool) -> str:

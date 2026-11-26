@@ -62,6 +62,34 @@ async def test_gbk_page_without_header_charset_uses_meta(web_page: Routes) -> No
     assert "这是第 3 段正文" in (await read_url("https://example.com/post")).text
 
 
+async def test_a_page_lists_its_pictures_with_page_one(web_page: Routes) -> None:
+    pictures = (
+        '<img src="/logo.png" width="40" height="40" alt="logo">'
+        '<img alt="立绘" width="893" height="1600" src="/a-640.webp" srcSet="/a-640.webp 640w, /a-1920.webp 1920w">'
+        '<img src="data:image/gif;base64,R0lGOD" data-src="https://cdn.example.com/lazy.jpg" alt="懒加载">'
+        '<img src="/icon.svg" alt="图标"><img src="/a-640.webp">'
+        '<picture><source srcset="/p-200.webp 200w,/p-400.webp 400w" type="image/webp">'
+        '<img src="/1x1.gif" width="200" height="200" alt="应用图标"></picture>'
+        '<img srcset="https://cdn.example.com/w_200,h_300/c.jpg 1x, https://cdn.example.com/w_400,h_600/c.jpg 2x">'
+    )
+    html = ARTICLE.replace(
+        "<head>", '<head><meta property="og:image" content="https://cdn.example.com/hero.webp">'
+    ).replace("<article>", f"<article>{pictures}")
+    web_page.answers["example.com"] = httpx.Response(200, html=html)
+    first = await read_url("https://example.com/post", max_chars=200)
+    assert first.images == [
+        "https://cdn.example.com/hero.webp",
+        "https://example.com/a-1920.webp",
+        "https://cdn.example.com/lazy.jpg",
+        "https://example.com/a-640.webp",
+        "https://example.com/p-400.webp",
+        "https://cdn.example.com/w_400,h_600/c.jpg",
+    ]
+    assert first.image_labels == ["页面主图", "立绘 · 893×1600", "懒加载", "", "应用图标 · 200×200", ""]
+    later = await read_url("https://example.com/post", max_chars=200, page=2)
+    assert (later.images, later.image_labels) == ([], [])
+
+
 async def test_block_page_without_browser_raises(web_page: Routes) -> None:
     web_page.answers["www.reddit.com"] = httpx.Response(200, html=BLOCK_PAGE)
     with pytest.raises(ToolError, match="拒绝"):
