@@ -110,8 +110,26 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
     reply: OpsReply | None = None
     error: str | None = None
     usage = RunUsage()
+    invocation_id = None
+    flusher = transcripts.LiveTranscriptFlusher(lambda: invocation_id, recorder, deps.notes, channel_id, guild_id)
+    recorder.on_update = flusher.trigger
     with TRACER.start_as_current_span("ygg.invocation ops", kind=trace.SpanKind.SERVER) as span:
         trace_id = current_trace_id()
+        async with get_session() as s:
+            row = Invocation(
+                channel_id=channel_id,
+                guild_id=guild_id,
+                user_id=incoming.user_id,
+                handler="ops",
+                trigger_msg_id=incoming.message_id,
+                request_text=instruction[:2000],
+                status="running",
+                models=[resolved.label],
+                trace_id=trace_id,
+            )
+            s.add(row)
+            await s.flush()
+            invocation_id = row.id
         try:
             await react(kook, channel_id, incoming.message_id, settings.interaction.received_emoji)
             agent: Agent[OpsDeps, OpsReply] = Agent(
@@ -148,6 +166,8 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
                 await react(kook, channel_id, incoming.message_id, settings.interaction.failure_emoji)
             else:
                 await _send(kook, incoming, f"出错了：{error[:300]}")
+        finally:
+            await flusher.close()
         span.set_attribute("ygg.status", outcome)
     record_usage(
         "ops",
@@ -160,27 +180,17 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
     INVOCATIONS.add(1, {"handler": "ops", "outcome": outcome})
     INVOCATION_DURATION.record(elapsed, {"handler": "ops"})
     async with get_session() as s:
-        row = Invocation(
-            channel_id=channel_id,
-            guild_id=guild_id,
-            user_id=incoming.user_id,
-            handler="ops",
-            trigger_msg_id=incoming.message_id,
-            request_text=instruction[:2000],
-            status=outcome,
-            models=[resolved.label],
-            tool_calls=dict(deps.tool_counts),
-            tokens_in=usage.input_tokens,
-            tokens_out=usage.output_tokens,
-            tokens_cached=usage.cache_read_tokens,
-            duration_ms=int(elapsed * 1000),
-            reply=reply.model_dump() if reply else None,
-            trace_id=trace_id,
-            error=error,
-        )
-        s.add(row)
-        await s.flush()
-        invocation_id = row.id
+        row = await s.get(Invocation, invocation_id)
+        if row is not None:
+            row.status = outcome
+            row.models = [resolved.label]
+            row.tool_calls = dict(deps.tool_counts)
+            row.tokens_in = usage.input_tokens
+            row.tokens_out = usage.output_tokens
+            row.tokens_cached = usage.cache_read_tokens
+            row.duration_ms = int(elapsed * 1000)
+            row.reply = reply.model_dump() if reply else None
+            row.error = error
     if recorder.history or recorder.tools:
         await transcripts.save_invocation(invocation_id, recorder, deps.notes, channel_id, guild_id)
     return outcome

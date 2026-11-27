@@ -420,15 +420,19 @@ class KookRest:
         *,
         post_id: str | None = None,
         time_ms: int | None = None,
-        order: int = 1,
+        order: str = "asc",
         page: int = 1,
         page_size: int = 20,
     ) -> list[dict[str, Any]]:
-        """List top-level comments (``post_id=None``) or nested floor replies (``post_id=<id>``) in a thread."""
+        """List top-level comments (``post_id=None``) or nested floor replies (``post_id=<id>``) in a thread.
+
+        ``order`` must be ``"asc"`` or ``"desc"`` (KOOK API v3 rejects numeric values).
+        """
+        norm_order = "desc" if str(order).strip().lower() in ("desc", "2") else "asc"
         params: dict[str, Any] = {
             "channel_id": channel_id,
             "thread_id": thread_id,
-            "order": order,
+            "order": norm_order,
             "page": max(page, 1),
             "page_size": min(max(page_size, 1), 100),
         }

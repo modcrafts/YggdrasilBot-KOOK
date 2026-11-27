@@ -9,6 +9,10 @@ from yggdrasil.delivery.render import (
     _sanitize_invisible_modules,
     build_card_batches,
     choose_format,
+    extract_message_anchor_ids,
+    extract_thread_anchor_ids,
+    kook_anchor_url,
+    render_reply,
     split_kmarkdown,
     to_kmarkdown,
 )
@@ -18,18 +22,19 @@ from yggdrasil.settings import InteractionSettings
 
 
 def test_to_kmarkdown_converts_channel_tags_in_chinese_prose_and_preserves_code_and_urls():
-    channels = {"闲聊": "1001", "技术讨论": "1002", "dev": "1003"}
+    channels = {"闲聊": "1001", "技术讨论": "1002", "dev": "1003", "题外故事": "1004"}
     text = (
-        "刚才在#闲聊里提到过，详情去 #技术讨论 看看，也可以看#dev频道。\n"
-        "链接 https://example.com/#闲聊 不要改，行内 `#闲聊` 也不要改。\n"
+        "刚才在#闲聊里提到过，详情去 #技术讨论 看看，也可以看#dev频道，还有 `#题外故事`。\n"
+        "链接 https://example.com/#闲聊 不要改，行内代码 `print('#闲聊')` 不要改。\n"
         "```python\n# 闲聊\nx = '#闲聊'\n```"
     )
     out = to_kmarkdown(text, channel_map=channels)
     assert "刚才在(chn)1001(chn)里提到过" in out
     assert "去 (chn)1002(chn) 看看" in out
     assert "看(chn)1003(chn)频道" in out
+    assert "还有 (chn)1004(chn)。" in out
     assert "https://example.com/#闲聊" in out
-    assert "`#闲聊`" in out
+    assert "`print('#闲聊')`" in out
     assert "x = '#闲聊'" in out
 
 
@@ -185,3 +190,45 @@ async def test_invisible_card_sanitizes_modules_and_falls_back_to_primary_on_400
     assert len(kook.sent) == 1
     assert json.loads(kook.sent[0].content)[0]["theme"] == "primary"
     assert len(recorded) == 1
+
+
+def test_message_and_thread_anchors_expand_to_bare_kook_anchor_urls():
+    msg_url = kook_anchor_url("2827730975763212", "1223237271137726", "a46693d3-e5a6-420d-b651-981ae282e132")
+    thread_url = kook_anchor_url("2827730975763212", "3148909618967474", "153610525312287232")
+    post_url = kook_anchor_url("2827730975763212", "3148909618967474", "153610525312287232", "153674495008179200")
+
+    reply = BotReply(
+        mode="reply",
+        sections=[
+            Section(
+                content=(
+                    "原消息在 #msg:42 ，也可以看 `#msg:42` 或 [原话](#msg:42)。\n"
+                    "帖子见 #thread:153610525312287232 ，具体回复在 `#thread:153610525312287232/153674495008179200`。\n"
+                    "```text\n#msg:42 #thread:153610525312287232\n```"
+                )
+            )
+        ],
+        sources=[
+            SourceRef(label="#题外故事 讨论", url="#msg:42"),
+            SourceRef(label="#题外故事 帖子回复", url="#thread:153610525312287232/153674495008179200"),
+        ],
+    )
+    assert extract_message_anchor_ids(reply) == {42}
+    assert extract_thread_anchor_ids(reply) == {"153610525312287232"}
+
+    plan = render_reply(
+        reply,
+        None,
+        InteractionSettings(reply_style="kmarkdown"),
+        channel_map={"题外故事": "3148909618967474"},
+        message_anchor_map={42: msg_url},
+        thread_channel_map={"153610525312287232": ("2827730975763212", "3148909618967474")},
+    )
+    kmd = plan.kmarkdown
+    # Bare anchor tags expand to bare KOOK anchor URLs (native KOOK chip); explicit [label](#msg:42) keeps label
+    assert f"原消息在 {msg_url} ，也可以看 {msg_url} 或 [原话]({msg_url})。" in kmd
+    assert f"帖子见 {thread_url} ，具体回复在 {post_url}。" in kmd
+    assert f"- (chn)3148909618967474(chn) 讨论 {msg_url}" in kmd
+    assert f"- (chn)3148909618967474(chn) 帖子回复 {post_url}" in kmd
+    # Code fence stays untouched
+    assert "```text\n#msg:42 #thread:153610525312287232\n```" in kmd

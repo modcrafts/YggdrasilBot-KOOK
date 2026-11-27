@@ -1,17 +1,20 @@
 """Persist transcripts and their images."""
 
+import asyncio
+import contextlib
 import json
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from yggdrasil.core.log import LOGGER
-from yggdrasil.db.models import Message, Transcript, TranscriptBlob
+from yggdrasil.db.models import Invocation, Message, Transcript, TranscriptBlob
 from yggdrasil.db.session import get_session
 from yggdrasil.people import names_in_guilds
-from yggdrasil.transcript.capture import TranscriptRecorder, entries
+from yggdrasil.transcript.capture import TranscriptRecorder, entries, live_stats
 from yggdrasil.transcript.notes import Blob, TraceNotes
 from yggdrasil.transcript.schema import VERSION, ChatMessage, Entry
 
@@ -97,9 +100,11 @@ async def save_invocation(
     notes: TraceNotes,
     channel_id: str | None,
     guild_id: str | None = None,
+    *,
+    live: bool = False,
 ) -> None:
     try:
-        items = entries(recorder, notes)
+        items = entries(recorder, notes, live=live)
         context = await build_context(notes, channel_id, guild_id, items)
         await store_blobs(notes.blobs)
         payload = dump(items)
@@ -121,6 +126,81 @@ async def save_invocation(
             await session.execute(stmt)
     except Exception:
         LOGGER.exception("saving the transcript of invocation {} failed", invocation_id)
+
+
+async def update_invocation_progress(invocation_id: UUID, recorder: TranscriptRecorder) -> None:
+    """Refresh live models, tokens, and tool counts on a still-``running`` invocation row."""
+    models, tokens_in, tokens_out, tokens_cached, tool_calls = live_stats(recorder)
+    with contextlib.suppress(Exception):
+        async with get_session() as session:
+            await session.execute(
+                update(Invocation)
+                .where(Invocation.id == invocation_id, Invocation.status == "running")
+                .values(
+                    models=models,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    tokens_cached=tokens_cached,
+                    tool_calls=tool_calls,
+                )
+            )
+
+
+class LiveTranscriptFlusher:
+    """Coalesced background flusher that persists mid-run transcript & stats snapshots while an invocation runs."""
+
+    def __init__(
+        self,
+        get_invocation_id: Callable[[], UUID | None],
+        recorder: TranscriptRecorder,
+        notes: TraceNotes,
+        channel_id: str | None,
+        guild_id: str | None = None,
+        *,
+        debounce_s: float = 0.25,
+    ) -> None:
+        self._get_invocation_id = get_invocation_id
+        self._recorder = recorder
+        self._notes = notes
+        self._channel_id = channel_id
+        self._guild_id = guild_id
+        self._debounce_s = debounce_s
+        self._dirty = False
+        self._closed = False
+        self._task: asyncio.Task[None] | None = None
+
+    def trigger(self) -> None:
+        if self._closed:
+            return
+        self._dirty = True
+        if self._task is None or self._task.done():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            self._task = loop.create_task(self._loop(), name="live-transcript-flush")
+
+    async def _loop(self) -> None:
+        while not self._closed and self._dirty:
+            if self._debounce_s > 0:
+                await asyncio.sleep(self._debounce_s)
+            if self._closed:
+                break
+            self._dirty = False
+            inv_id = self._get_invocation_id()
+            if inv_id is None or not (self._recorder.history or self._recorder.tools):
+                continue
+            await save_invocation(inv_id, self._recorder, self._notes, self._channel_id, self._guild_id, live=True)
+            await update_invocation_progress(inv_id, self._recorder)
+
+    async def close(self) -> None:
+        """Stop scheduling new flushes and wait for any in-flight flush before the final authoritative save."""
+        self._closed = True
+        self._dirty = False
+        task = self._task
+        if task is not None and not task.done():
+            with contextlib.suppress(BaseException):
+                await task
 
 
 async def append_job(

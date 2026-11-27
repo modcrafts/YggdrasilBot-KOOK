@@ -118,7 +118,7 @@ class Kook(ABC):
         thread_id: str,
         *,
         post_id: str | None = None,
-        order: int = 1,
+        order: str = "asc",
         page: int = 1,
         limit: int = 20,
     ) -> list[ForumPost]:
@@ -456,7 +456,7 @@ class LiveKook(Kook):
         thread_id: str,
         *,
         post_id: str | None = None,
-        order: int = 1,
+        order: str = "asc",
         page: int = 1,
         limit: int = 20,
     ) -> list[ForumPost]:

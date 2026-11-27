@@ -147,9 +147,10 @@ async def test_thread_and_extended_rest_endpoints():
     detail = await rest.thread_view("ch-forum", "th-1")
     assert detail["id"] == "th-1"
 
-    posts = await rest.thread_post_list("ch-forum", "th-1", post_id="p-0", order=2, page=2, page_size=15)
+    posts = await rest.thread_post_list("ch-forum", "th-1", post_id="p-0", order="desc", page=2, page_size=15)
     assert posts == [{"id": "p-1", "content": "[]"}]
     assert calls[3][2]["post_id"] == "p-0"
+    assert calls[3][2]["order"] == "desc"
 
     await rest.message_update("m-1", "new content", quote="q-1")
     assert calls[4][1] == "/api/v3/message/update"

@@ -95,3 +95,4 @@ class Deps:
     text_only: bool = False
     bridge: "RunBridge | None" = None
     role_ids: tuple[str, ...] = ()
+    forum_thread_channels: dict[str, str] = field(default_factory=dict)  # thread_id -> forum channel_id

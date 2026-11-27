@@ -4,13 +4,15 @@ content capture off."""
 import asyncio
 import json
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, ToolReturn
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from yggdrasil.transcript.capture import TranscriptRecorder, entries
+from yggdrasil.transcript import store as transcript_store
+from yggdrasil.transcript.capture import TranscriptRecorder, entries, live_stats
 from yggdrasil.transcript.notes import TraceNotes, blob_id
 from yggdrasil.transcript.schema import ChatContextDisplay, ChatMessage, Entry, ImagePart
 from yggdrasil.transcript.schema import ToolCallPart as TcPart
@@ -165,3 +167,56 @@ async def test_metadata_mode_keeps_shapes_without_content() -> None:
     assert call.chars > 0
     assert notes.blobs == {}
     assert notes.image_keys == {}
+
+
+async def test_live_progress_omits_in_flight_tool_and_flusher_coalesces(monkeypatch: pytest.MonkeyPatch) -> None:
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[ToolCallPart("slow", {}, tool_call_id="c1")])
+
+    updates = 0
+
+    def on_update() -> None:
+        nonlocal updates
+        updates += 1
+
+    recorder = TranscriptRecorder(on_update=on_update)
+    notes = TraceNotes()
+    started = asyncio.Event()
+    task = asyncio.create_task(_agent(respond, recorder, started).run("跑个慢的", deps=notes))
+    await started.wait()
+
+    # Mid-run live snapshot omits the still-running tool entry so the UI renders its ToolCallPart as "运行中"
+    live_items = entries(recorder, notes, live=True)
+    assert _kinds(live_items) == ["system", "user", "assistant"]
+    assert updates >= 3  # model start, model response, tool start
+    models, _tin, _tout, _tcached, tool_calls = live_stats(recorder)
+    assert models == ["function:respond:"]
+    assert tool_calls == {"slow": 1}
+
+    # Flusher coalesces triggers and finishes cleanly on close()
+    saved: list[bool] = []
+    progressed: list[dict[str, int]] = []
+
+    async def fake_save(_inv_id: Any, _rec: Any, _notes: Any, _ch: Any, _g: Any, *, live: bool = False) -> None:
+        saved.append(live)
+
+    async def fake_progress(_inv_id: Any, rec: TranscriptRecorder) -> None:
+        progressed.append(live_stats(rec)[4])
+
+    monkeypatch.setattr(transcript_store, "save_invocation", fake_save)
+    monkeypatch.setattr(transcript_store, "update_invocation_progress", fake_progress)
+
+    inv_id = uuid4()
+    flusher = transcript_store.LiveTranscriptFlusher(lambda: inv_id, recorder, notes, "ch-1", "g-1", debounce_s=0.01)
+    flusher.trigger()
+    flusher.trigger()
+    await asyncio.sleep(0.05)
+    await flusher.close()
+    assert saved == [True]
+    assert progressed == [{"slow": 1}]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    # Final non-live snapshot marks the interrupted tool cancelled
+    assert _kinds(entries(recorder, notes, live=False)) == ["system", "user", "assistant", "tool:slow:cancelled"]

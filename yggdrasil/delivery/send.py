@@ -2,13 +2,23 @@
 
 import asyncio
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
+
+from sqlalchemy import select
 
 from yggdrasil.agent.media import media_type
 from yggdrasil.agent.schema import BotReply
 from yggdrasil.core.log import LOGGER
-from yggdrasil.delivery.render import UploadedPicture, render_reply
+from yggdrasil.db.models import KookThread, Message
+from yggdrasil.db.session import get_session
+from yggdrasil.delivery.render import (
+    UploadedPicture,
+    extract_message_anchor_ids,
+    extract_thread_anchor_ids,
+    kook_anchor_url,
+    render_reply,
+)
 from yggdrasil.ingest.writer import WRITER, IncomingMessage
 from yggdrasil.kook import segments as seg
 from yggdrasil.kook.client import Kook
@@ -19,6 +29,99 @@ from yggdrasil.transcript.notes import Blob, blob_id
 from yggdrasil.transcript.store import store_blobs
 
 type Picture = tuple[bytes, str]  # (image bytes, caption)
+
+
+async def resolve_message_anchors(
+    guild_id: str | None,
+    channel_id: str | None,
+    reply: BotReply,
+    *,
+    role_ids: Collection[str] = (),
+) -> dict[int, str]:
+    """Resolve ``#msg:<id>`` / ``[label](#<id>)`` anchors in ``reply`` to KOOK message jump URLs.
+
+    Strictly enforces guild membership, channel privacy (``accessible_channels``), and non-recalled status so
+    the model can only link to messages visible in the current scope.
+    """
+    if not guild_id:
+        return {}
+    wanted = extract_message_anchor_ids(reply)
+    if not wanted:
+        return {}
+    from yggdrasil.memory.search import accessible_channels
+
+    allowed = accessible_channels(guild_id, channel_id, role_ids=role_ids)
+    if not allowed:
+        return {}
+    try:
+        async with get_session() as session:
+            rows = (
+                await session.execute(
+                    select(Message.id, Message.guild_id, Message.channel_id, Message.kook_message_id).where(
+                        Message.id.in_(wanted),
+                        Message.guild_id == guild_id,
+                        Message.channel_id.in_(allowed),
+                        Message.recalled.is_(False),
+                    )
+                )
+            ).all()
+    except Exception:
+        LOGGER.debug("resolving KOOK message anchors skipped", exc_info=True)
+        return {}
+    return {
+        int(mid): kook_anchor_url(gid, cid, kook_mid) for mid, gid, cid, kook_mid in rows if gid and cid and kook_mid
+    }
+
+
+async def resolve_thread_anchors(
+    guild_id: str | None,
+    channel_id: str | None,
+    reply: BotReply,
+    *,
+    known_channels: Mapping[str, str] | None = None,
+    role_ids: Collection[str] = (),
+) -> dict[str, tuple[str, str]]:
+    """Resolve ``#thread:<tid>[/<pid>]`` anchors in ``reply`` to ``{thread_id: (guild_id, channel_id)}``.
+
+    Uses per-run ``known_channels`` (from ``list_forum_threads`` / ``read_forum_thread``) first and falls back to
+    ``kook_threads`` cache, strictly restricted to ``accessible_forum_channels``.
+    """
+    if not guild_id:
+        return {}
+    wanted = extract_thread_anchor_ids(reply)
+    if not wanted:
+        return {}
+    from yggdrasil.forum import accessible_forum_channels
+
+    allowed_ids = {c.channel_id for c in accessible_forum_channels(guild_id, channel_id, role_ids=role_ids)}
+    if not allowed_ids:
+        return {}
+    out: dict[str, tuple[str, str]] = {}
+    missing: set[str] = set()
+    for tid in wanted:
+        cid = (known_channels or {}).get(tid)
+        if cid and cid in allowed_ids:
+            out[tid] = (guild_id, cid)
+        else:
+            missing.add(tid)
+    if missing:
+        try:
+            async with get_session() as session:
+                rows = (
+                    await session.execute(
+                        select(KookThread.thread_id, KookThread.guild_id, KookThread.channel_id).where(
+                            KookThread.thread_id.in_(missing),
+                            KookThread.guild_id == guild_id,
+                            KookThread.channel_id.in_(allowed_ids),
+                        )
+                    )
+                ).all()
+            for tid, gid, cid in rows:
+                if gid and cid:
+                    out[str(tid)] = (str(gid), str(cid))
+        except Exception:
+            LOGGER.debug("resolving KOOK thread anchors skipped", exc_info=True)
+    return out
 
 
 def record_self(
@@ -160,6 +263,8 @@ async def send_reply(
     images: Mapping[str, Picture] | None = None,
     attached: Sequence[Picture] = (),
     channel_map: Mapping[str, str] | None = None,
+    message_anchor_map: Mapping[int, str] | None = None,
+    thread_channel_map: Mapping[str, tuple[str, str]] | None = None,
     force_card: bool = False,
     theme: str = "primary",
     chat_code: str | None = None,
@@ -183,6 +288,8 @@ async def send_reply(
         images=uploaded_by_key,
         attached=uploaded_attached,
         channel_map=channel_map,
+        message_anchor_map=message_anchor_map,
+        thread_channel_map=thread_channel_map,
         force_card=force_card,
         theme=theme,
     )

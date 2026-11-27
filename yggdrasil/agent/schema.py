@@ -18,8 +18,14 @@ class Section(BaseModel):
 
 
 class SourceRef(BaseModel):
-    label: str = Field(description="来源名称，如网页标题、文件名、#频道名 #消息id")
-    url: str | None = None
+    label: str = Field(description="来源名称，如网页标题、文件名、#频道名 原消息")
+    url: str | None = Field(
+        default=None,
+        description=(
+            "完整链接；指向历史消息或帖子时可直接填 #msg:消息编号、#thread:帖子ID "
+            "或 #thread:帖子ID/评论post_id（系统自动转为 KOOK 原生锚点链接）"
+        ),
+    )
 
 
 class BotReply(BaseModel):

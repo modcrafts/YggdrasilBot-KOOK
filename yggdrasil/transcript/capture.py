@@ -10,6 +10,8 @@ request (their results never went back to the model).
 import asyncio
 import json
 import time
+from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -67,9 +69,15 @@ class TranscriptRecorder(AbstractCapability[Any]):
     # the earlier invocation's transcript, so left out of this one) and the earlier invocation's id.
     prior: list[ModelMessage] = field(default_factory=list)
     continued_from: str | None = None
+    on_update: Callable[[], None] | None = field(default=None, repr=False, compare=False)
+
+    def _notify(self) -> None:
+        if self.on_update is not None:
+            self.on_update()
 
     async def wrap_model_request(self, ctx: Any, *, request_context: Any, handler: Any) -> ModelResponse:
         self.history = list(request_context.messages)
+        self._notify()
         started = time.time()
         try:
             response = await handler(request_context)
@@ -77,13 +85,16 @@ class TranscriptRecorder(AbstractCapability[Any]):
             raise
         except Exception as e:
             self.failure = (time.time(), describe(e)[:2000])
+            self._notify()
             raise
         self.spans.append((started, time.time()))
         self.history.append(response)
+        self._notify()
         return response
 
     async def wrap_tool_execute(self, ctx: Any, *, call: Any, tool_def: Any, args: Any, handler: Any) -> Any:
         record = self.tools[call.tool_call_id] = ToolRecord(call.tool_name, time.time())
+        self._notify()
         try:
             result = await handler(args)
         except BaseException as e:
@@ -94,10 +105,29 @@ class TranscriptRecorder(AbstractCapability[Any]):
                 record.outcome, record.result = "retry", str(e)
             else:
                 record.outcome, record.result = "error", f"{type(e).__name__}: {e}"
+            self._notify()
             raise
         record.ended = time.time()
         record.result = result
+        self._notify()
         return result
+
+
+def live_stats(recorder: TranscriptRecorder) -> tuple[list[str], int, int, int, dict[str, int]]:
+    """Aggregate ``(models, tokens_in, tokens_out, tokens_cached, tool_calls)`` from an in-flight recorder."""
+    models: list[str] = []
+    tokens_in = tokens_out = tokens_cached = 0
+    prior_responses = {id(m) for m in recorder.prior if isinstance(m, ModelResponse)}
+    for msg in recorder.history:
+        if isinstance(msg, ModelResponse) and id(msg) not in prior_responses:
+            if msg.model_name and msg.model_name not in models:
+                models.append(msg.model_name)
+            u = msg.usage
+            tokens_in += u.input_tokens or 0
+            tokens_out += u.output_tokens or 0
+            tokens_cached += u.cache_read_tokens or 0
+    tool_counts = Counter(rec.name for rec in recorder.tools.values())
+    return models, tokens_in, tokens_out, tokens_cached, dict(tool_counts)
 
 
 def _at(epoch: float | None) -> datetime | None:
@@ -205,8 +235,13 @@ def _tool_entry(
     )
 
 
-def entries(recorder: TranscriptRecorder, notes: TraceNotes) -> list[Entry]:
-    """The run's conversation; images referenced by the entries are added to ``notes.blobs``."""
+def entries(recorder: TranscriptRecorder, notes: TraceNotes, *, live: bool = False) -> list[Entry]:
+    """The run's conversation; images referenced by the entries are added to ``notes.blobs``.
+
+    When ``live=True`` (mid-run progress snapshot), still-running tool calls (``record.ended is None``) are
+    omitted as tool result entries so the UI displays their ``ToolCallPart`` with a live spinner instead of
+    marking them ``cancelled``.
+    """
     full = notes.full
     out: list[Entry] = []
     system: str | None = None
@@ -283,9 +318,11 @@ def entries(recorder: TranscriptRecorder, notes: TraceNotes) -> list[Entry]:
                             parts=[text_part(text, full)],
                         )
                     )
-    # Tools that ran after the last model request (the run failed or was cancelled before reporting back).
+    # Tools that ran after the last model request (in-flight when live, or finished/interrupted before reporting back).
     for call_id, record in recorder.tools.items():
         if call_id in returned:
+            continue
+        if live and record.ended is None:
             continue
         text = _result_text(record.result) if record.result is not None else None
         entry = _tool_entry(call_id, record.name, text, record, notes, None)

@@ -12,7 +12,7 @@ from yggdrasil.core.log import LOGGER
 from yggdrasil.db.models import Invocation, ReviewItem
 from yggdrasil.db.session import get_session
 from yggdrasil.delivery.render import build_notice_card
-from yggdrasil.delivery.send import send_kmarkdown, send_reply
+from yggdrasil.delivery.send import resolve_message_anchors, resolve_thread_anchors, send_kmarkdown, send_reply
 from yggdrasil.kook.client import Kook, connected
 from yggdrasil.moderation.guard import Verdict
 from yggdrasil.people import member_label
@@ -134,10 +134,16 @@ async def decide(review_id: int, action: str, actor: str, edited_text: str | Non
             else:
                 reply = BotReply.model_validate(item.reply)
                 channel_map = (
-                    {c.name: c.channel_id for c in snap.guild_channels(guild_id, enabled_only=True) if c.name}
+                    {
+                        c.name.strip(): c.channel_id
+                        for c in snap.guild_channels(guild_id, enabled_only=False, include_forums=True)
+                        if c.name and c.name.strip()
+                    }
                     if guild_id
                     else {}
                 )
+                anchor_map = await resolve_message_anchors(guild_id, item.channel_id, reply)
+                thread_map = await resolve_thread_anchors(guild_id, item.channel_id, reply)
                 sent_id = await send_reply(
                     kook,
                     channel_id=item.channel_id,
@@ -150,6 +156,8 @@ async def decide(review_id: int, action: str, actor: str, edited_text: str | Non
                     self_id=ident.self_id,
                     nickname=ident.nickname,
                     channel_map=channel_map,
+                    message_anchor_map=anchor_map or None,
+                    thread_channel_map=thread_map or None,
                     theme="primary" if settings.interaction.reply_style == "card" else "invisible",
                 )
         item.status = {"approve": "approved", "reject": "rejected", "edit": "approved"}[action]

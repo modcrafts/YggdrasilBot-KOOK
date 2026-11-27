@@ -29,7 +29,14 @@ from yggdrasil.bot.state import identity, should_quote
 from yggdrasil.core.log import LOGGER
 from yggdrasil.core.metrics import INVOCATION_ACK_LATENCY, INVOCATION_DURATION, INVOCATIONS
 from yggdrasil.core.telemetry import TRACER, current_trace_id
-from yggdrasil.delivery.send import react, send_kmarkdown, send_reply, unreact
+from yggdrasil.delivery.send import (
+    react,
+    resolve_message_anchors,
+    resolve_thread_anchors,
+    send_kmarkdown,
+    send_reply,
+    unreact,
+)
 from yggdrasil.kook.client import Kook
 from yggdrasil.kook.model import Incoming
 from yggdrasil.llm.errors import describe, refusal
@@ -173,6 +180,10 @@ class Invocator:
         self._keep: tuple[sessions.Setup, str] | None = None
         self.recorder = TranscriptRecorder()
         self.notes = TraceNotes(full=settings.privacy.capture_llm_content)
+        self._flusher = transcripts.LiveTranscriptFlusher(
+            lambda: self.invocation_id, self.recorder, self.notes, self.channel_id, self.guild_id
+        )
+        self.recorder.on_update = self._flusher.trigger
         self.watch = recalls.Watch()
         self._slow: asyncio.Task[None] | None = None
         self._received_reacted = False
@@ -216,6 +227,7 @@ class Invocator:
                 if self.sandbox is not None:
                     with contextlib.suppress(Exception):
                         await self.sandbox.close()
+                await self._flusher.close()
                 if self.invocation_id is not None and (self.recorder.history or self.recorder.tools):
                     await transcripts.save_invocation(
                         self.invocation_id, self.recorder, self.notes, self.channel_id, self.guild_id
@@ -711,7 +723,11 @@ class Invocator:
         """``channel_name -> channel_id`` map in this guild for ``#频道名`` -> ``(chn)id(chn)``."""
         if not self.guild_id:
             return {}
-        return {c.name: c.channel_id for c in snapshot().guild_channels(self.guild_id, enabled_only=False) if c.name}
+        return {
+            c.name.strip(): c.channel_id
+            for c in snapshot().guild_channels(self.guild_id, enabled_only=False, include_forums=True)
+            if c.name and c.name.strip()
+        }
 
     async def deliver(self, reply: BotReply) -> None:
         cfg = self.settings.interaction
@@ -727,6 +743,15 @@ class Invocator:
         meta_text = self.meta.render(list(cfg.metadata_fields)) if cfg.metadata_node else None
         is_structured_report = self.record_handler in ("tldr", "report")
         card_theme = "primary" if (is_structured_report or cfg.reply_style == "card") else "invisible"
+        role_ids = deps.role_ids if deps is not None else ()
+        anchor_map = await resolve_message_anchors(self.guild_id, self.channel_id, reply, role_ids=role_ids)
+        thread_map = await resolve_thread_anchors(
+            self.guild_id,
+            self.channel_id,
+            reply,
+            known_channels=deps.forum_thread_channels if deps is not None else None,
+            role_ids=role_ids,
+        )
         self.reply_msg_id = await send_reply(
             self.kook,
             channel_id=self.channel_id,
@@ -741,6 +766,8 @@ class Invocator:
             images=images,
             attached=deps.images if deps is not None else (),
             channel_map=self._channel_map(),
+            message_anchor_map=anchor_map or None,
+            thread_channel_map=thread_map or None,
             force_card=is_structured_report,
             theme=card_theme,
             chat_code=self.chat_code,

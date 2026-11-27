@@ -30,6 +30,57 @@ _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*$", re.MULTILINE)
 _BULLET_RE = re.compile(r"^(\s*)[*+]\s+", re.MULTILINE)
 _SLOT_RE = re.compile(r"\x00(\d+)\x00")
+_MD_MSG_ANCHOR_RE = re.compile(r"\[([^\]]+)\]\(#(?:msg:)?(\d+)\)")
+_BARE_MSG_ANCHOR_RE = re.compile(r"(?<![A-Za-z0-9_#/(\[])#msg:(\d+)\b")
+_SOURCE_MSG_ANCHOR_RE = re.compile(r"^#(?:msg:)?(\d+)$")
+_MD_THREAD_ANCHOR_RE = re.compile(r"\[([^\]]+)\]\(#thread:(\d+)(?:/(\d+))?\)")
+_BARE_THREAD_ANCHOR_RE = re.compile(r"(?<![A-Za-z0-9_#/(\[])#thread:(\d+)(?:/(\d+))?\b")
+_SOURCE_THREAD_ANCHOR_RE = re.compile(r"^#thread:(\d+)(?:/(\d+))?$")
+_KOOK_ANCHOR_PREFIX = "https://www.kookapp.cn/direct/anchor/"
+
+
+def kook_anchor_url(guild_id: str, channel_id: str, target_id: str, post_id: str | None = None) -> str:
+    """Build a bare KOOK native anchor URL (message, forum thread, or forum post reply)."""
+    base = f"{_KOOK_ANCHOR_PREFIX}{guild_id}/{channel_id}/{target_id}"
+    return f"{base}/{post_id}" if post_id else base
+
+
+def extract_message_anchor_ids(reply: BotReply) -> set[int]:
+    """Collect DB message IDs referenced via ``#msg:<id>`` or ``[text](#<id>)`` in ``reply``."""
+    ids: set[int] = set()
+    for section in reply.sections:
+        text = _FENCE_RE.sub("", section.content)
+        for m in _MD_MSG_ANCHOR_RE.finditer(text):
+            ids.add(int(m.group(2)))
+        for m in _BARE_MSG_ANCHOR_RE.finditer(text):
+            ids.add(int(m.group(1)))
+    for src in reply.sources:
+        if src.url and (m := _SOURCE_MSG_ANCHOR_RE.match(src.url.strip())):
+            ids.add(int(m.group(1)))
+        for m in _MD_MSG_ANCHOR_RE.finditer(src.label):
+            ids.add(int(m.group(2)))
+        for m in _BARE_MSG_ANCHOR_RE.finditer(src.label):
+            ids.add(int(m.group(1)))
+    return ids
+
+
+def extract_thread_anchor_ids(reply: BotReply) -> set[str]:
+    """Collect KOOK forum ``thread_id`` values referenced via ``#thread:<tid>[/<pid>]`` in ``reply``."""
+    ids: set[str] = set()
+    for section in reply.sections:
+        text = _FENCE_RE.sub("", section.content)
+        for m in _MD_THREAD_ANCHOR_RE.finditer(text):
+            ids.add(m.group(2))
+        for m in _BARE_THREAD_ANCHOR_RE.finditer(text):
+            ids.add(m.group(1))
+    for src in reply.sources:
+        if src.url and (m := _SOURCE_THREAD_ANCHOR_RE.match(src.url.strip())):
+            ids.add(m.group(1))
+        for m in _MD_THREAD_ANCHOR_RE.finditer(src.label):
+            ids.add(m.group(2))
+        for m in _BARE_THREAD_ANCHOR_RE.finditer(src.label):
+            ids.add(m.group(1))
+    return ids
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,11 +99,21 @@ class RenderedPlan:
     plain_text: str = ""
 
 
-def to_kmarkdown(text: str, *, channel_map: Mapping[str, str] | None = None) -> str:
+def to_kmarkdown(
+    text: str,
+    *,
+    channel_map: Mapping[str, str] | None = None,
+    message_anchor_map: Mapping[int, str] | None = None,
+    thread_channel_map: Mapping[str, tuple[str, str]] | None = None,
+) -> str:
     """Convert standard Markdown to clean KOOK KMarkdown without breaking code blocks.
 
-    When ``channel_map`` (``channel_name -> channel_id``) is given, ``#channel_name`` references outside code
-    blocks are upgraded into native clickable KOOK ``(chn)<id>(chn)`` tags.
+    - ``channel_map`` (``channel_name -> channel_id``): upgrades ``#channel_name`` to ``(chn)<id>(chn)``.
+    - ``message_anchor_map`` (``db_msg_id -> bare KOOK anchor URL``): upgrades ``#msg:<id>`` (and Markdown
+      ``[label](#msg:<id>)``) to bare ``https://www.kookapp.cn/direct/anchor/{g}/{c}/{uuid}`` so KOOK renders
+      its native jump chip.
+    - ``thread_channel_map`` (``thread_id -> (guild_id, channel_id)``): upgrades ``#thread:<tid>`` and
+      ``#thread:<tid>/<pid>`` to bare KOOK forum thread/reply anchor URLs.
     """
     stashed: list[str] = []
 
@@ -60,24 +121,83 @@ def to_kmarkdown(text: str, *, channel_map: Mapping[str, str] | None = None) -> 
         stashed.append(m.group(0))
         return f"\x00{len(stashed) - 1}\x00"
 
+    norm_channels: dict[str, str] = {}
+    if channel_map:
+        for raw_name, cid in channel_map.items():
+            clean_name = raw_name.strip().lstrip("#")
+            if clean_name and cid:
+                norm_channels[clean_name] = cid
+
+    def _resolve_thread_url(tid: str, pid: str | None) -> str | None:
+        if not thread_channel_map or tid not in thread_channel_map:
+            return None
+        gid, cid = thread_channel_map[tid]
+        return kook_anchor_url(gid, cid, tid, pid)
+
+    def stash_inline(m: re.Match[str]) -> str:
+        inner = m.group(1).strip()
+        # Models often wrap `#频道名`, `#msg:123`, or `#thread:...` in inline backticks (copying prompt examples).
+        # Unwrap exact known refs so KOOK renders native chips while keeping real inline code intact.
+        if inner.startswith("#"):
+            if message_anchor_map and (mm := _SOURCE_MSG_ANCHOR_RE.match(inner)) and inner.startswith("#msg:"):
+                if url := message_anchor_map.get(int(mm.group(1))):
+                    return url
+            if thread_channel_map and (tm := _SOURCE_THREAD_ANCHOR_RE.match(inner)):
+                if url := _resolve_thread_url(tm.group(1), tm.group(2)):
+                    return url
+            if norm_channels:
+                wanted = inner[1:].strip()
+                for cname, cid in norm_channels.items():
+                    if cname.lower() == wanted.lower():
+                        return f"(chn){cid}(chn)"
+        return stash(m)
+
     cleaned = text.replace("\x00", "")
     cleaned = _FENCE_RE.sub(stash, cleaned)
-    cleaned = _INLINE_CODE_RE.sub(stash, cleaned)
+    cleaned = _INLINE_CODE_RE.sub(stash_inline, cleaned)
     # KOOK KMarkdown renders bold headings much better than raw `#` lines inside cards/messages.
     cleaned = _HEADING_RE.sub(lambda m: f"**{m.group(1).strip()}**", cleaned)
     cleaned = _BULLET_RE.sub(r"\1- ", cleaned)
 
-    if channel_map:
+    if norm_channels:
         # Longest channel name first so prefixes don't shadow longer sibling channel names.
-        for name in sorted(channel_map, key=len, reverse=True):
-            if not name:
-                continue
-            cid = channel_map[name]
+        for name in sorted(norm_channels, key=len, reverse=True):
+            cid = norm_channels[name]
             # Avoid matching URL fragments (/#foo) or ASCII identifiers (foo#bar), while allowing Chinese prose
             # immediately around `#频道名` (e.g. `在#闲聊里` -> `在(chn)123(chn)里`).
             tail_guard = r"(?![A-Za-z0-9_-])" if re.match(r"[A-Za-z0-9_-]", name[-1]) else ""
-            pattern = re.compile(rf"(?<![A-Za-z0-9_#/])#{re.escape(name)}{tail_guard}")
+            pattern = re.compile(rf"(?<![A-Za-z0-9_#/])#{re.escape(name)}{tail_guard}", re.IGNORECASE)
             cleaned = pattern.sub(f"(chn){cid}(chn)", cleaned)
+
+    if message_anchor_map is not None:
+
+        def _replace_md_anchor(m: re.Match[str]) -> str:
+            label, mid = m.group(1), int(m.group(2))
+            url = message_anchor_map.get(mid)
+            return f"[{label}]({url})" if url else label
+
+        def _replace_bare_anchor(m: re.Match[str]) -> str:
+            mid = int(m.group(1))
+            url = message_anchor_map.get(mid)
+            return url if url else f"#{mid}"
+
+        cleaned = _MD_MSG_ANCHOR_RE.sub(_replace_md_anchor, cleaned)
+        cleaned = _BARE_MSG_ANCHOR_RE.sub(_replace_bare_anchor, cleaned)
+
+    if thread_channel_map is not None:
+
+        def _replace_md_thread(m: re.Match[str]) -> str:
+            label, tid, pid = m.group(1), m.group(2), m.group(3)
+            url = _resolve_thread_url(tid, pid)
+            return f"[{label}]({url})" if url else label
+
+        def _replace_bare_thread(m: re.Match[str]) -> str:
+            tid, pid = m.group(1), m.group(2)
+            url = _resolve_thread_url(tid, pid)
+            return url if url else m.group(0)
+
+        cleaned = _MD_THREAD_ANCHOR_RE.sub(_replace_md_thread, cleaned)
+        cleaned = _BARE_THREAD_ANCHOR_RE.sub(_replace_bare_thread, cleaned)
 
     return _SLOT_RE.sub(lambda m: stashed[int(m.group(1))], cleaned).strip()
 
@@ -190,14 +310,45 @@ def choose_format(
     return "kmarkdown"
 
 
-def _sources_kmarkdown(reply: BotReply) -> str:
+def _sources_kmarkdown(
+    reply: BotReply,
+    *,
+    channel_map: Mapping[str, str] | None = None,
+    message_anchor_map: Mapping[int, str] | None = None,
+    thread_channel_map: Mapping[str, tuple[str, str]] | None = None,
+) -> str:
     lines = ["**参考来源**"]
     for s in reply.sources[:10]:
         label = s.label.strip().replace("[", "(").replace("]", ")")
-        if s.url:
-            lines.append(f"- [{label}]({s.url})")
+        url = (s.url or "").strip()
+        if url and (m := _SOURCE_MSG_ANCHOR_RE.match(url)):
+            url = (message_anchor_map or {}).get(int(m.group(1)), "")
+        elif url and (tm := _SOURCE_THREAD_ANCHOR_RE.match(url)):
+            tid, pid = tm.group(1), tm.group(2)
+            if thread_channel_map and tid in thread_channel_map:
+                gid, cid = thread_channel_map[tid]
+                url = kook_anchor_url(gid, cid, tid, pid)
+            else:
+                url = ""
+        if url and url.startswith(_KOOK_ANCHOR_PREFIX):
+            # Keep KOOK anchor URLs bare so KOOK natively renders them instead of Markdown link text.
+            rendered_label = to_kmarkdown(
+                label,
+                channel_map=channel_map,
+                message_anchor_map=message_anchor_map,
+                thread_channel_map=thread_channel_map,
+            )
+            lines.append(f"- {rendered_label} {url}" if rendered_label else f"- {url}")
+        elif url:
+            lines.append(f"- [{label}]({url})")
         else:
-            lines.append(f"- {label}")
+            rendered_label = to_kmarkdown(
+                label,
+                channel_map=channel_map,
+                message_anchor_map=message_anchor_map,
+                thread_channel_map=thread_channel_map,
+            )
+            lines.append(f"- {rendered_label}")
     return "\n".join(lines)
 
 
@@ -240,6 +391,8 @@ def build_card_batches(
     images: Mapping[str, UploadedPicture] | None = None,
     attached: Sequence[UploadedPicture] = (),
     channel_map: Mapping[str, str] | None = None,
+    message_anchor_map: Mapping[int, str] | None = None,
+    thread_channel_map: Mapping[str, tuple[str, str]] | None = None,
     theme: str = "primary",
 ) -> tuple[list[dict[str, Any]], ...]:
     """Build KOOK CardMessage JSON payloads for ``reply``."""
@@ -266,7 +419,12 @@ def build_card_batches(
         body = section.content.strip()
         if section.heading and section.heading.strip():
             body = f"**{section.heading.strip()}**\n{body}" if body else f"**{section.heading.strip()}**"
-        kmd = to_kmarkdown(body, channel_map=channel_map)
+        kmd = to_kmarkdown(
+            body,
+            channel_map=channel_map,
+            message_anchor_map=message_anchor_map,
+            thread_channel_map=thread_channel_map,
+        )
         for chunk in split_kmarkdown(kmd, cfg.section_max_chars):
             modules.append({"type": "section", "text": {"type": "kmarkdown", "content": chunk}})
         for key in section.images:
@@ -278,7 +436,20 @@ def build_card_batches(
 
     if reply.sources:
         modules.append({"type": "divider"})
-        modules.append({"type": "section", "text": {"type": "kmarkdown", "content": _sources_kmarkdown(reply)}})
+        modules.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "kmarkdown",
+                    "content": _sources_kmarkdown(
+                        reply,
+                        channel_map=channel_map,
+                        message_anchor_map=message_anchor_map,
+                        thread_channel_map=thread_channel_map,
+                    ),
+                },
+            }
+        )
 
     if meta_text and meta_text.strip():
         modules.append({"type": "divider"})
@@ -307,6 +478,8 @@ def render_reply(
     images: Mapping[str, UploadedPicture] | None = None,
     attached: Sequence[UploadedPicture] = (),
     channel_map: Mapping[str, str] | None = None,
+    message_anchor_map: Mapping[int, str] | None = None,
+    thread_channel_map: Mapping[str, tuple[str, str]] | None = None,
     force_card: bool = False,
     theme: str = "primary",
 ) -> RenderedPlan:
@@ -319,9 +492,20 @@ def render_reply(
         plain = f"{reply.title.strip()}\n{plain}" if plain else reply.title.strip()
 
     if fmt == "kmarkdown":
-        kmd = to_kmarkdown(reply.full_text(), channel_map=channel_map)
+        kmd = to_kmarkdown(
+            reply.full_text(),
+            channel_map=channel_map,
+            message_anchor_map=message_anchor_map,
+            thread_channel_map=thread_channel_map,
+        )
         if reply.sources:
-            kmd = f"{kmd}\n\n{_sources_kmarkdown(reply)}" if kmd else _sources_kmarkdown(reply)
+            src_md = _sources_kmarkdown(
+                reply,
+                channel_map=channel_map,
+                message_anchor_map=message_anchor_map,
+                thread_channel_map=thread_channel_map,
+            )
+            kmd = f"{kmd}\n\n{src_md}" if kmd else src_md
         return RenderedPlan(kind="kmarkdown", kmarkdown=kmd, pictures=tuple(ordered_pics), plain_text=plain)
 
     batches = build_card_batches(
@@ -331,6 +515,8 @@ def render_reply(
         images=images,
         attached=attached,
         channel_map=channel_map,
+        message_anchor_map=message_anchor_map,
+        thread_channel_map=thread_channel_map,
         theme=theme,
     )
     return RenderedPlan(kind="card", card_batches=batches, pictures=tuple(ordered_pics), plain_text=plain)

@@ -36,7 +36,9 @@ KOOK 工具直接实时查询 KOOK 服务器；user_id 是成员 ID（「名字(
 KOOK KMarkdown 常用语法（直接使用，不要联网查 KOOK 文档）：
 - @ 成员：`(met)user_id(met)`；@ 在线/全体：`(met)here(met)` / `(met)all(met)`（无明确要求勿用）；
   @ 角色：`(rol)role_id(rol)`。
-- 频道跳转：直接写 `#频道名`（系统自动转为 `(chn)channel_id(chn)`）。
+- 频道跳转：直接写 `#频道名`（不要加反引号，系统自动转为 `(chn)channel_id(chn)`）。
+- 消息与帖子定位跳转：写 `#msg:消息编号`（聊天消息）、`#thread:帖子ID`（帖子主楼）或
+  `#thread:帖子ID/评论post_id`（帖子回复）；裸写转为 KOOK 原生锚点链接，自定义文字时也可写 `[文字](#msg:编号)`。
 - 样式扩展：`**加粗**`、`*斜体*`、`~~删除线~~`、`(ins)下划线(ins)`、`(spl)剧透(spl)`、
   `[文字](https://...)`、`---`、`> 引用`、`` `代码` ``。
 - 服务器表情：`(emj)表情名(emj)[表情ID]`；
@@ -323,6 +325,8 @@ async def list_forum_threads(
                 sections.append(f"{header}\n拉取失败：{e}")
                 continue
             await _try_cache_threads(threads)
+            for t in threads:
+                ctx.deps.forum_thread_channels[t.thread_id] = ch.channel_id
             if not threads:
                 sections.append(f"{header}\n（暂无帖子）")
                 continue
@@ -358,6 +362,8 @@ async def list_forum_threads(
     except KookError as e:
         raise ToolError(f"拉取帖子列表失败：{e}") from e
     await _try_cache_threads(threads)
+    for t in threads:
+        ctx.deps.forum_thread_channels[t.thread_id] = target.channel_id
 
     out = [f"帖子频道：#{target.name or target.channel_id}（channel_id={target.channel_id}）"]
     if cats:
@@ -401,6 +407,7 @@ async def read_forum_thread(
     except KookError as e:
         raise ToolError(f"读取帖子 {tid} 失败：{e}") from e
     await _try_cache_threads([thread])
+    ctx.deps.forum_thread_channels[thread.thread_id] = target.channel_id
 
     who = clean_name(thread.author.name) or thread.author.user_id or "未知作者"
     created = _when(thread.create_time) if thread.create_time else ""
@@ -447,7 +454,7 @@ async def read_forum_thread(
         pid = post_id.strip() if post_id and post_id.strip() else None
         try:
             posts = await ctx.deps.kook.forum_posts(
-                target.channel_id, tid, post_id=pid, order=1, page=1, limit=min(max(posts_limit, 1), 50)
+                target.channel_id, tid, post_id=pid, order="asc", page=1, limit=min(max(posts_limit, 1), 50)
             )
         except KookError as e:
             out.append(f"\n### 评论\n拉取评论失败：{e}")

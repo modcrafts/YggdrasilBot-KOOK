@@ -161,3 +161,4 @@ async def test_list_and_read_forum_thread_tools(
     assert isinstance(denied, str)
     assert "找不到可读取的帖子频道" in denied
     assert cached_batches == [["th-101"], ["th-101"], ["th-101"]]
+    assert ctx.deps.forum_thread_channels == {"th-101": CH_FORUM_PUB}
