@@ -157,12 +157,13 @@ def to_kmarkdown(
         if inner.startswith("#"):
             if message_anchor_map and (mm := _SOURCE_MSG_ANCHOR_RE.match(inner)) and inner.startswith("#msg:"):
                 if url := message_anchor_map.get(int(mm.group(1))):
-                    return f"[原消息]({_escape_kmd_link_url(url)})"
+                    safe = _escape_kmd_link_url(url)
+                    return f"[{safe}]({safe})"
             if thread_channel_map and (tm := _SOURCE_THREAD_ANCHOR_RE.match(inner)):
                 tid, pid = tm.group(1), tm.group(2)
                 if url := _resolve_thread_url(tid, pid):
-                    label = "原回复" if pid else "原帖"
-                    return f"[{label}]({_escape_kmd_link_url(url)})"
+                    safe = _escape_kmd_link_url(url)
+                    return f"[{safe}]({safe})"
             if norm_channels:
                 wanted = inner[1:].strip()
                 for cname, cid in norm_channels.items():
@@ -197,7 +198,10 @@ def to_kmarkdown(
         def _replace_bare_anchor(m: re.Match[str]) -> str:
             mid = int(m.group(1))
             url = message_anchor_map.get(mid)
-            return f"[原消息]({_escape_kmd_link_url(url)})" if url else f"#{mid}"
+            if not url:
+                return f"#{mid}"
+            safe = _escape_kmd_link_url(url)
+            return f"[{safe}]({safe})"
 
         cleaned = _MD_MSG_ANCHOR_RE.sub(_replace_md_anchor, cleaned)
         cleaned = _BARE_MSG_ANCHOR_RE.sub(_replace_bare_anchor, cleaned)
@@ -214,8 +218,8 @@ def to_kmarkdown(
             url = _resolve_thread_url(tid, pid)
             if not url:
                 return m.group(0)
-            label = "原回复" if pid else "原帖"
-            return f"[{label}]({_escape_kmd_link_url(url)})"
+            safe = _escape_kmd_link_url(url)
+            return f"[{safe}]({safe})"
 
         cleaned = _MD_THREAD_ANCHOR_RE.sub(_replace_md_thread, cleaned)
         cleaned = _BARE_THREAD_ANCHOR_RE.sub(_replace_bare_thread, cleaned)

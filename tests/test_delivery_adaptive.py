@@ -226,9 +226,9 @@ def test_message_and_thread_anchors_expand_to_bare_kook_anchor_urls():
         thread_channel_map={"153610525312287232": ("2827730975763212", "3148909618967474")},
     )
     kmd = plan.kmarkdown
-    # All links in KOOK KMarkdown are wrapped in [label](url) so KOOK always parses them as clickable
-    assert f"原消息在 [原消息]({msg_url}) ，也可以看 [原消息]({msg_url}) 或 [原话]({msg_url})。" in kmd
-    assert f"帖子见 [原帖]({thread_url}) ，具体回复在 [原回复]({post_url})。" in kmd
+    # Bare anchor tags expand to [url](url) so KOOK parses them into native jump chips; explicit [label] keeps label
+    assert f"原消息在 [{msg_url}]({msg_url}) ，也可以看 [{msg_url}]({msg_url}) 或 [原话]({msg_url})。" in kmd
+    assert f"帖子见 [{thread_url}]({thread_url}) ，具体回复在 [{post_url}]({post_url})。" in kmd
     # Sources with URL wrap the whole escaped label inside [label](url) without nesting (chn)
     assert f"- [#题外故事 · NCG爆笑手术Top榜（仍在更新中）]({msg_url})" in kmd
     assert rf"- [\[置顶\] \*重要\* \(测试\) \`tag\`]({post_url})" in kmd
