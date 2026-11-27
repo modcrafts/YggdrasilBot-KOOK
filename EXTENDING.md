@@ -33,6 +33,7 @@
 from yggdrasil.runtime import snapshot
 from yggdrasil.tools.errors import ToolError
 
+
 def _resolve_secret() -> tuple[str, str]:
     sec = snapshot().tool_secrets.get("my_tool")
     if sec is None or not sec.enabled or not sec.api_key:
@@ -48,6 +49,7 @@ def _resolve_secret() -> tuple[str, str]:
 from pydantic_ai import RunContext
 from yggdrasil.agent.deps import Deps
 from yggdrasil.agent.tools.base import chat_tool
+
 
 @chat_tool("my_tool")
 async def my_tool(ctx: RunContext[Deps], query: str) -> str:
@@ -81,17 +83,19 @@ my_tool_max_items: int = Field(default=5, ge=1, le=20, description="my_tool 单�
 1. 在 `TOOL_SPECS` 中追加一条 `ToolSpec`：
 
 ```python
-ToolSpec(
-    id="my_tool",
-    name="我的新工具",
-    category="web",  # web | media | memory | render | sandbox
-    description="简明说明工具用途与效果。",
-    handlers=("chat", "tldr"),
-    param_keys=("my_tool_timeout_s", "my_tool_max_items"),
-    supports_secret=False,  # 如需独立加密凭据设为 True
-    related_route=None,     # 如依赖其他页面可填 "/providers" | "/routes" | "/search"
-    related_label=None,
-),
+(
+    ToolSpec(
+        id="my_tool",
+        name="我的新工具",
+        category="web",  # web | media | memory | render | sandbox
+        description="简明说明工具用途与效果。",
+        handlers=("chat", "tldr"),
+        param_keys=("my_tool_timeout_s", "my_tool_max_items"),
+        supports_secret=False,  # 如需独立加密凭据设为 True
+        related_route=None,  # 如依赖其他页面可填 "/providers" | "/routes" | "/search"
+        related_label=None,
+    ),
+)
 ```
 
 2. 在 `_diagnose_tool()` 中补充该工具的实时状态诊断分支（返回 `(status, status_label, status_detail)`），让控制台卡片准确显示「已就绪 / 需注意 / 未配置」。
@@ -153,6 +157,7 @@ DESCRIPTION = "写清楚模型在什么场景下应该调用 load_capability 加
 INSTRUCTIONS = """\
 详细的工具使用规范与注意事项...
 """
+
 
 def capability(*, extra_instructions: str = "") -> Capability[Deps]:
     text = INSTRUCTIONS if not extra_instructions.strip() else f"{INSTRUCTIONS}\n\n{extra_instructions.strip()}"
@@ -218,10 +223,10 @@ description: 当群友询问服务器规则、活动时间、新人入服流程�
 - [ ] **OpenAPI 与前端同步**：执行完整校验：
 
 ```bash
-# 1. 代码格式与静态类型检查
-.venv/bin/ruff format --check yggdrasil
-.venv/bin/ruff check yggdrasil
-.venv/bin/basedpyright yggdrasil
+# 1. 全仓库代码格式、Lint 与静态类型检查（与 CI 保持一致，含 tests/ 与 .md 中的 Python 代码块）
+uv run ruff format --check .
+uv run ruff check .
+uv run basedpyright
 
 # 2. 后端测试（含 OpenAPI 一致性检查）
 YGG_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= .venv/bin/pytest -q

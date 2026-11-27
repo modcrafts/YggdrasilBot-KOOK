@@ -104,10 +104,10 @@ flowchart LR
 ## Development & Verification
 
 ```bash
-# Lint, format, and type-check backend
-uv run ruff format --check yggdrasil
-uv run ruff check yggdrasil
-uv run basedpyright yggdrasil
+# Lint, format, and type-check entire repo (matches CI, including tests and Python blocks in .md files)
+uv run ruff format --check .
+uv run ruff check .
+uv run basedpyright
 
 # Run unit tests (add YGG_TEST_DB=1 with test Postgres for @pytest.mark.db integration tests)
 YGG_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= uv run pytest -q
