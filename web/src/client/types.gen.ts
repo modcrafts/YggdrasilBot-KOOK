@@ -1058,6 +1058,161 @@ export type ForumThreadOut = {
 };
 
 /**
+ * GModBridgeOverviewOut
+ */
+export type GModBridgeOverviewOut = {
+    /**
+     * Bridge Port
+     */
+    bridge_port: number;
+    /**
+     * Serving
+     */
+    serving: boolean;
+    /**
+     * Servers
+     */
+    servers: Array<GModServerOut>;
+};
+
+/**
+ * GModPingOut
+ */
+export type GModPingOut = {
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Latency Ms
+     */
+    latency_ms: number;
+    /**
+     * Data
+     */
+    data?: unknown;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
+ * GModServerCreateIn
+ */
+export type GModServerCreateIn = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Note
+     */
+    note?: string;
+    /**
+     * Token
+     */
+    token?: string | null;
+};
+
+/**
+ * GModServerCreatedOut
+ */
+export type GModServerCreatedOut = {
+    server: GModServerOut;
+    /**
+     * Plaintext Token
+     */
+    plaintext_token?: string | null;
+};
+
+/**
+ * GModServerOut
+ */
+export type GModServerOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Note
+     */
+    note: string;
+    /**
+     * Token Masked
+     */
+    token_masked: string | null;
+    /**
+     * Online
+     */
+    online: boolean;
+    /**
+     * Last Seen
+     */
+    last_seen?: string | null;
+    /**
+     * Remote Ip
+     */
+    remote_ip?: string;
+    /**
+     * Protocol Version
+     */
+    protocol_version?: string;
+    /**
+     * Handlers
+     */
+    handlers?: Array<string>;
+    /**
+     * Meta
+     */
+    meta?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * GModServerUpdateIn
+ */
+export type GModServerUpdateIn = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Note
+     */
+    note?: string;
+    /**
+     * Token
+     */
+    token?: string | null;
+    /**
+     * Rotate Token
+     */
+    rotate_token?: boolean;
+};
+
+/**
  * GeneralToolPolicyIn
  */
 export type GeneralToolPolicyIn = {
@@ -2051,7 +2206,7 @@ export type OpsRoleRule = {
      *
      * 允许该 KOOK 角色通过管理助手（ops）调用的工具子集
      */
-    tools?: Array<'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message'>;
+    tools?: Array<'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message' | 'gmod_servers' | 'gmod_ping' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'gmod_queue_singlepass' | 'gmod_queue_letin'>;
     /**
      * Kook Write Actions
      *
@@ -2073,7 +2228,7 @@ export type OpsToolOut = {
     /**
      * Id
      */
-    id: 'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message';
+    id: 'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message' | 'gmod_servers' | 'gmod_ping' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'gmod_queue_singlepass' | 'gmod_queue_letin';
     /**
      * Name
      */
@@ -2081,7 +2236,7 @@ export type OpsToolOut = {
     /**
      * Category
      */
-    category: 'read' | 'config' | 'kook' | 'moderation';
+    category: 'read' | 'config' | 'kook' | 'moderation' | 'gmod';
     /**
      * Write
      */
@@ -3661,7 +3816,7 @@ export type ToolItemOut = {
     /**
      * Id
      */
-    id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'sandbox';
+    id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'sandbox';
     /**
      * Name
      */
@@ -3669,7 +3824,7 @@ export type ToolItemOut = {
     /**
      * Category
      */
-    category: 'web' | 'media' | 'memory' | 'render' | 'sandbox';
+    category: 'web' | 'media' | 'memory' | 'render' | 'sandbox' | 'gmod';
     /**
      * Description
      */
@@ -5142,7 +5297,7 @@ export type UpdateToolConfigData = {
         /**
          * Tool Id
          */
-        tool_id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'sandbox';
+        tool_id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'sandbox';
     };
     query?: never;
     url: '/tools/{tool_id}';
@@ -5321,6 +5476,137 @@ export type UpdateCustomSkillResponses = {
 };
 
 export type UpdateCustomSkillResponse = UpdateCustomSkillResponses[keyof UpdateCustomSkillResponses];
+
+export type ListGmodServersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/gmod/servers';
+};
+
+export type ListGmodServersResponses = {
+    /**
+     * Successful Response
+     */
+    200: GModBridgeOverviewOut;
+};
+
+export type ListGmodServersResponse = ListGmodServersResponses[keyof ListGmodServersResponses];
+
+export type CreateGmodServerData = {
+    body: GModServerCreateIn;
+    path?: never;
+    query?: never;
+    url: '/gmod/servers';
+};
+
+export type CreateGmodServerErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateGmodServerError = CreateGmodServerErrors[keyof CreateGmodServerErrors];
+
+export type CreateGmodServerResponses = {
+    /**
+     * Successful Response
+     */
+    200: GModServerCreatedOut;
+};
+
+export type CreateGmodServerResponse = CreateGmodServerResponses[keyof CreateGmodServerResponses];
+
+export type DeleteGmodServerData = {
+    body?: never;
+    path: {
+        /**
+         * Server Id
+         */
+        server_id: string;
+    };
+    query?: never;
+    url: '/gmod/servers/{server_id}';
+};
+
+export type DeleteGmodServerErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteGmodServerError = DeleteGmodServerErrors[keyof DeleteGmodServerErrors];
+
+export type DeleteGmodServerResponses = {
+    /**
+     * Successful Response
+     */
+    200: Ok;
+};
+
+export type DeleteGmodServerResponse = DeleteGmodServerResponses[keyof DeleteGmodServerResponses];
+
+export type UpdateGmodServerData = {
+    body: GModServerUpdateIn;
+    path: {
+        /**
+         * Server Id
+         */
+        server_id: string;
+    };
+    query?: never;
+    url: '/gmod/servers/{server_id}';
+};
+
+export type UpdateGmodServerErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateGmodServerError = UpdateGmodServerErrors[keyof UpdateGmodServerErrors];
+
+export type UpdateGmodServerResponses = {
+    /**
+     * Successful Response
+     */
+    200: GModServerCreatedOut;
+};
+
+export type UpdateGmodServerResponse = UpdateGmodServerResponses[keyof UpdateGmodServerResponses];
+
+export type PingGmodServerData = {
+    body?: never;
+    path: {
+        /**
+         * Server Id
+         */
+        server_id: string;
+    };
+    query?: never;
+    url: '/gmod/servers/{server_id}/ping';
+};
+
+export type PingGmodServerErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PingGmodServerError = PingGmodServerErrors[keyof PingGmodServerErrors];
+
+export type PingGmodServerResponses = {
+    /**
+     * Successful Response
+     */
+    200: GModPingOut;
+};
+
+export type PingGmodServerResponse = PingGmodServerResponses[keyof PingGmodServerResponses];
 
 export type DeleteKookConnectionData = {
     body?: never;

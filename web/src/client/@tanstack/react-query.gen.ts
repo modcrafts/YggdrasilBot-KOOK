@@ -3,8 +3,8 @@
 import { type DefaultError, type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { activatePromptVersion, addAdmin, archiveSmallTopics, archiveTopic, backfillChannel, cancelJob, createCustomSkill, createEmbedSpace, createGlossaryTerm, createPromptVersion, createProvider, createSearchProvider, createTrigger, decideReview, deleteChannel, deleteCustomSkill, deleteEmbedSpace, deleteGlossaryTerm, deleteGuild, deleteKookConnection, deleteProfile, deleteProfileFact, deleteProvider, deleteRoute, deleteSearchProvider, deleteTrigger, destroyAllWorkspaces, destroyWorkspace, getChannelTree, getGlobalSettings, getInvocation, getInvocationTranscript, getJob, getJobTranscript, getKookConnection, getMe, getOpsToolsOverview, getProfile, getPrompt, getProviderBalance, getScopeSettings, getSearchProviderBalance, getSettingsSchema, getSkillsOverview, getStats, getSticker, getToolsOverview, getTriggerMeta, listAdmins, listChannels, listDigests, listEmbedSpaces, listEvents, listForumChannelThreads, listGlossary, listGuilds, listInvocations, listJobs, listKookGuildRoles, listKookLiveGuilds, listPipelines, listProfiles, listPrompts, listProviders, listReviews, listRoutes, listSearchProviders, listStickerDrops, listStickers, listTopics, listTriggers, listWorkspaces, lockGlossaryTerm, type Options, previewPrompt, putGlobalSettings, putKookConnection, putScopeSettings, reembedEmbedSpace, refreshProviderModels, removeAdmin, resetPrompt, restoreProfileFact, setProviderAliases, setStickerEnabled, stickerImage, syncForumChannelThreads, syncKookStructure, testProvenanceTool, testProvider, testSearchProvider, testTrigger, transcriptBlob, updateBuiltinSkill, updateCustomSkill, updateGeneralToolPolicy, updateGlossaryTerm, updateOpsToolsConfig, updateProvider, updateSearchProvider, updateToolConfig, updateTrigger, upsertChannel, upsertGuild, upsertRoute } from '../sdk.gen';
-import type { ActivatePromptVersionData, ActivatePromptVersionError, ActivatePromptVersionResponse, AddAdminData, AddAdminError, AddAdminResponse, ArchiveSmallTopicsData, ArchiveSmallTopicsError, ArchiveSmallTopicsResponse, ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, BackfillChannelData, BackfillChannelError, BackfillChannelResponse, CancelJobData, CancelJobError, CancelJobResponse, CreateCustomSkillData, CreateCustomSkillError, CreateCustomSkillResponse, CreateEmbedSpaceData, CreateEmbedSpaceError, CreateEmbedSpaceResponse, CreateGlossaryTermData, CreateGlossaryTermError, CreateGlossaryTermResponse, CreatePromptVersionData, CreatePromptVersionError, CreatePromptVersionResponse, CreateProviderData, CreateProviderError, CreateProviderResponse, CreateSearchProviderData, CreateSearchProviderError, CreateSearchProviderResponse, CreateTriggerData, CreateTriggerError, CreateTriggerResponse, DecideReviewData, DecideReviewError, DecideReviewResponse, DeleteChannelData, DeleteChannelError, DeleteChannelResponse, DeleteCustomSkillData, DeleteCustomSkillError, DeleteCustomSkillResponse, DeleteEmbedSpaceData, DeleteEmbedSpaceError, DeleteEmbedSpaceResponse, DeleteGlossaryTermData, DeleteGlossaryTermError, DeleteGlossaryTermResponse, DeleteGuildData, DeleteGuildError, DeleteGuildResponse, DeleteKookConnectionData, DeleteKookConnectionResponse, DeleteProfileData, DeleteProfileError, DeleteProfileFactData, DeleteProfileFactError, DeleteProfileFactResponse, DeleteProfileResponse, DeleteProviderData, DeleteProviderError, DeleteProviderResponse, DeleteRouteData, DeleteRouteError, DeleteRouteResponse, DeleteSearchProviderData, DeleteSearchProviderError, DeleteSearchProviderResponse, DeleteTriggerData, DeleteTriggerError, DeleteTriggerResponse, DestroyAllWorkspacesData, DestroyAllWorkspacesResponse, DestroyWorkspaceData, DestroyWorkspaceError, DestroyWorkspaceResponse, GetChannelTreeData, GetChannelTreeResponse, GetGlobalSettingsData, GetGlobalSettingsResponse, GetInvocationData, GetInvocationError, GetInvocationResponse, GetInvocationTranscriptData, GetInvocationTranscriptError, GetInvocationTranscriptResponse, GetJobData, GetJobError, GetJobResponse, GetJobTranscriptData, GetJobTranscriptError, GetJobTranscriptResponse, GetKookConnectionData, GetKookConnectionResponse, GetMeData, GetMeResponse, GetOpsToolsOverviewData, GetOpsToolsOverviewResponse, GetProfileData, GetProfileError, GetProfileResponse, GetPromptData, GetPromptError, GetPromptResponse, GetProviderBalanceData, GetProviderBalanceError, GetProviderBalanceResponse, GetScopeSettingsData, GetScopeSettingsError, GetScopeSettingsResponse, GetSearchProviderBalanceData, GetSearchProviderBalanceError, GetSearchProviderBalanceResponse, GetSettingsSchemaData, GetSettingsSchemaResponse, GetSkillsOverviewData, GetSkillsOverviewResponse, GetStatsData, GetStatsResponse, GetStickerData, GetStickerError, GetStickerResponse, GetToolsOverviewData, GetToolsOverviewResponse, GetTriggerMetaData, GetTriggerMetaResponse, ListAdminsData, ListAdminsResponse, ListChannelsData, ListChannelsError, ListChannelsResponse, ListDigestsData, ListDigestsError, ListDigestsResponse, ListEmbedSpacesData, ListEmbedSpacesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListForumChannelThreadsData, ListForumChannelThreadsError, ListForumChannelThreadsResponse, ListGlossaryData, ListGlossaryError, ListGlossaryResponse, ListGuildsData, ListGuildsResponse, ListInvocationsData, ListInvocationsError, ListInvocationsResponse, ListJobsData, ListJobsError, ListJobsResponse, ListKookGuildRolesData, ListKookGuildRolesError, ListKookGuildRolesResponse, ListKookLiveGuildsData, ListKookLiveGuildsResponse, ListPipelinesData, ListPipelinesResponse, ListProfilesData, ListProfilesError, ListProfilesResponse, ListPromptsData, ListPromptsResponse, ListProvidersData, ListProvidersResponse, ListReviewsData, ListReviewsError, ListReviewsResponse, ListRoutesData, ListRoutesResponse, ListSearchProvidersData, ListSearchProvidersResponse, ListStickerDropsData, ListStickerDropsError, ListStickerDropsResponse, ListStickersData, ListStickersError, ListStickersResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTriggersData, ListTriggersResponse, ListWorkspacesData, ListWorkspacesResponse, LockGlossaryTermData, LockGlossaryTermError, LockGlossaryTermResponse, PreviewPromptData, PreviewPromptError, PreviewPromptResponse, PutGlobalSettingsData, PutGlobalSettingsError, PutGlobalSettingsResponse, PutKookConnectionData, PutKookConnectionError, PutKookConnectionResponse, PutScopeSettingsData, PutScopeSettingsError, PutScopeSettingsResponse, ReembedEmbedSpaceData, ReembedEmbedSpaceError, ReembedEmbedSpaceResponse, RefreshProviderModelsData, RefreshProviderModelsError, RefreshProviderModelsResponse, RemoveAdminData, RemoveAdminError, RemoveAdminResponse, ResetPromptData, ResetPromptError, ResetPromptResponse, RestoreProfileFactData, RestoreProfileFactError, RestoreProfileFactResponse, SetProviderAliasesData, SetProviderAliasesError, SetProviderAliasesResponse, SetStickerEnabledData, SetStickerEnabledError, SetStickerEnabledResponse, StickerImageData, StickerImageError, SyncForumChannelThreadsData, SyncForumChannelThreadsError, SyncForumChannelThreadsResponse, SyncKookStructureData, SyncKookStructureResponse, TestProvenanceToolData, TestProvenanceToolError, TestProvenanceToolResponse, TestProviderData, TestProviderError, TestProviderResponse, TestSearchProviderData, TestSearchProviderError, TestSearchProviderResponse, TestTriggerData, TestTriggerError, TestTriggerResponse, TranscriptBlobData, TranscriptBlobError, UpdateBuiltinSkillData, UpdateBuiltinSkillError, UpdateBuiltinSkillResponse, UpdateCustomSkillData, UpdateCustomSkillError, UpdateCustomSkillResponse, UpdateGeneralToolPolicyData, UpdateGeneralToolPolicyError, UpdateGeneralToolPolicyResponse, UpdateGlossaryTermData, UpdateGlossaryTermError, UpdateGlossaryTermResponse, UpdateOpsToolsConfigData, UpdateOpsToolsConfigError, UpdateOpsToolsConfigResponse, UpdateProviderData, UpdateProviderError, UpdateProviderResponse, UpdateSearchProviderData, UpdateSearchProviderError, UpdateSearchProviderResponse, UpdateToolConfigData, UpdateToolConfigError, UpdateToolConfigResponse, UpdateTriggerData, UpdateTriggerError, UpdateTriggerResponse, UpsertChannelData, UpsertChannelError, UpsertChannelResponse, UpsertGuildData, UpsertGuildError, UpsertGuildResponse, UpsertRouteData, UpsertRouteError, UpsertRouteResponse } from '../types.gen';
+import { activatePromptVersion, addAdmin, archiveSmallTopics, archiveTopic, backfillChannel, cancelJob, createCustomSkill, createEmbedSpace, createGlossaryTerm, createGmodServer, createPromptVersion, createProvider, createSearchProvider, createTrigger, decideReview, deleteChannel, deleteCustomSkill, deleteEmbedSpace, deleteGlossaryTerm, deleteGmodServer, deleteGuild, deleteKookConnection, deleteProfile, deleteProfileFact, deleteProvider, deleteRoute, deleteSearchProvider, deleteTrigger, destroyAllWorkspaces, destroyWorkspace, getChannelTree, getGlobalSettings, getInvocation, getInvocationTranscript, getJob, getJobTranscript, getKookConnection, getMe, getOpsToolsOverview, getProfile, getPrompt, getProviderBalance, getScopeSettings, getSearchProviderBalance, getSettingsSchema, getSkillsOverview, getStats, getSticker, getToolsOverview, getTriggerMeta, listAdmins, listChannels, listDigests, listEmbedSpaces, listEvents, listForumChannelThreads, listGlossary, listGmodServers, listGuilds, listInvocations, listJobs, listKookGuildRoles, listKookLiveGuilds, listPipelines, listProfiles, listPrompts, listProviders, listReviews, listRoutes, listSearchProviders, listStickerDrops, listStickers, listTopics, listTriggers, listWorkspaces, lockGlossaryTerm, type Options, pingGmodServer, previewPrompt, putGlobalSettings, putKookConnection, putScopeSettings, reembedEmbedSpace, refreshProviderModels, removeAdmin, resetPrompt, restoreProfileFact, setProviderAliases, setStickerEnabled, stickerImage, syncForumChannelThreads, syncKookStructure, testProvenanceTool, testProvider, testSearchProvider, testTrigger, transcriptBlob, updateBuiltinSkill, updateCustomSkill, updateGeneralToolPolicy, updateGlossaryTerm, updateGmodServer, updateOpsToolsConfig, updateProvider, updateSearchProvider, updateToolConfig, updateTrigger, upsertChannel, upsertGuild, upsertRoute } from '../sdk.gen';
+import type { ActivatePromptVersionData, ActivatePromptVersionError, ActivatePromptVersionResponse, AddAdminData, AddAdminError, AddAdminResponse, ArchiveSmallTopicsData, ArchiveSmallTopicsError, ArchiveSmallTopicsResponse, ArchiveTopicData, ArchiveTopicError, ArchiveTopicResponse, BackfillChannelData, BackfillChannelError, BackfillChannelResponse, CancelJobData, CancelJobError, CancelJobResponse, CreateCustomSkillData, CreateCustomSkillError, CreateCustomSkillResponse, CreateEmbedSpaceData, CreateEmbedSpaceError, CreateEmbedSpaceResponse, CreateGlossaryTermData, CreateGlossaryTermError, CreateGlossaryTermResponse, CreateGmodServerData, CreateGmodServerError, CreateGmodServerResponse, CreatePromptVersionData, CreatePromptVersionError, CreatePromptVersionResponse, CreateProviderData, CreateProviderError, CreateProviderResponse, CreateSearchProviderData, CreateSearchProviderError, CreateSearchProviderResponse, CreateTriggerData, CreateTriggerError, CreateTriggerResponse, DecideReviewData, DecideReviewError, DecideReviewResponse, DeleteChannelData, DeleteChannelError, DeleteChannelResponse, DeleteCustomSkillData, DeleteCustomSkillError, DeleteCustomSkillResponse, DeleteEmbedSpaceData, DeleteEmbedSpaceError, DeleteEmbedSpaceResponse, DeleteGlossaryTermData, DeleteGlossaryTermError, DeleteGlossaryTermResponse, DeleteGmodServerData, DeleteGmodServerError, DeleteGmodServerResponse, DeleteGuildData, DeleteGuildError, DeleteGuildResponse, DeleteKookConnectionData, DeleteKookConnectionResponse, DeleteProfileData, DeleteProfileError, DeleteProfileFactData, DeleteProfileFactError, DeleteProfileFactResponse, DeleteProfileResponse, DeleteProviderData, DeleteProviderError, DeleteProviderResponse, DeleteRouteData, DeleteRouteError, DeleteRouteResponse, DeleteSearchProviderData, DeleteSearchProviderError, DeleteSearchProviderResponse, DeleteTriggerData, DeleteTriggerError, DeleteTriggerResponse, DestroyAllWorkspacesData, DestroyAllWorkspacesResponse, DestroyWorkspaceData, DestroyWorkspaceError, DestroyWorkspaceResponse, GetChannelTreeData, GetChannelTreeResponse, GetGlobalSettingsData, GetGlobalSettingsResponse, GetInvocationData, GetInvocationError, GetInvocationResponse, GetInvocationTranscriptData, GetInvocationTranscriptError, GetInvocationTranscriptResponse, GetJobData, GetJobError, GetJobResponse, GetJobTranscriptData, GetJobTranscriptError, GetJobTranscriptResponse, GetKookConnectionData, GetKookConnectionResponse, GetMeData, GetMeResponse, GetOpsToolsOverviewData, GetOpsToolsOverviewResponse, GetProfileData, GetProfileError, GetProfileResponse, GetPromptData, GetPromptError, GetPromptResponse, GetProviderBalanceData, GetProviderBalanceError, GetProviderBalanceResponse, GetScopeSettingsData, GetScopeSettingsError, GetScopeSettingsResponse, GetSearchProviderBalanceData, GetSearchProviderBalanceError, GetSearchProviderBalanceResponse, GetSettingsSchemaData, GetSettingsSchemaResponse, GetSkillsOverviewData, GetSkillsOverviewResponse, GetStatsData, GetStatsResponse, GetStickerData, GetStickerError, GetStickerResponse, GetToolsOverviewData, GetToolsOverviewResponse, GetTriggerMetaData, GetTriggerMetaResponse, ListAdminsData, ListAdminsResponse, ListChannelsData, ListChannelsError, ListChannelsResponse, ListDigestsData, ListDigestsError, ListDigestsResponse, ListEmbedSpacesData, ListEmbedSpacesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListForumChannelThreadsData, ListForumChannelThreadsError, ListForumChannelThreadsResponse, ListGlossaryData, ListGlossaryError, ListGlossaryResponse, ListGmodServersData, ListGmodServersResponse, ListGuildsData, ListGuildsResponse, ListInvocationsData, ListInvocationsError, ListInvocationsResponse, ListJobsData, ListJobsError, ListJobsResponse, ListKookGuildRolesData, ListKookGuildRolesError, ListKookGuildRolesResponse, ListKookLiveGuildsData, ListKookLiveGuildsResponse, ListPipelinesData, ListPipelinesResponse, ListProfilesData, ListProfilesError, ListProfilesResponse, ListPromptsData, ListPromptsResponse, ListProvidersData, ListProvidersResponse, ListReviewsData, ListReviewsError, ListReviewsResponse, ListRoutesData, ListRoutesResponse, ListSearchProvidersData, ListSearchProvidersResponse, ListStickerDropsData, ListStickerDropsError, ListStickerDropsResponse, ListStickersData, ListStickersError, ListStickersResponse, ListTopicsData, ListTopicsError, ListTopicsResponse, ListTriggersData, ListTriggersResponse, ListWorkspacesData, ListWorkspacesResponse, LockGlossaryTermData, LockGlossaryTermError, LockGlossaryTermResponse, PingGmodServerData, PingGmodServerError, PingGmodServerResponse, PreviewPromptData, PreviewPromptError, PreviewPromptResponse, PutGlobalSettingsData, PutGlobalSettingsError, PutGlobalSettingsResponse, PutKookConnectionData, PutKookConnectionError, PutKookConnectionResponse, PutScopeSettingsData, PutScopeSettingsError, PutScopeSettingsResponse, ReembedEmbedSpaceData, ReembedEmbedSpaceError, ReembedEmbedSpaceResponse, RefreshProviderModelsData, RefreshProviderModelsError, RefreshProviderModelsResponse, RemoveAdminData, RemoveAdminError, RemoveAdminResponse, ResetPromptData, ResetPromptError, ResetPromptResponse, RestoreProfileFactData, RestoreProfileFactError, RestoreProfileFactResponse, SetProviderAliasesData, SetProviderAliasesError, SetProviderAliasesResponse, SetStickerEnabledData, SetStickerEnabledError, SetStickerEnabledResponse, StickerImageData, StickerImageError, SyncForumChannelThreadsData, SyncForumChannelThreadsError, SyncForumChannelThreadsResponse, SyncKookStructureData, SyncKookStructureResponse, TestProvenanceToolData, TestProvenanceToolError, TestProvenanceToolResponse, TestProviderData, TestProviderError, TestProviderResponse, TestSearchProviderData, TestSearchProviderError, TestSearchProviderResponse, TestTriggerData, TestTriggerError, TestTriggerResponse, TranscriptBlobData, TranscriptBlobError, UpdateBuiltinSkillData, UpdateBuiltinSkillError, UpdateBuiltinSkillResponse, UpdateCustomSkillData, UpdateCustomSkillError, UpdateCustomSkillResponse, UpdateGeneralToolPolicyData, UpdateGeneralToolPolicyError, UpdateGeneralToolPolicyResponse, UpdateGlossaryTermData, UpdateGlossaryTermError, UpdateGlossaryTermResponse, UpdateGmodServerData, UpdateGmodServerError, UpdateGmodServerResponse, UpdateOpsToolsConfigData, UpdateOpsToolsConfigError, UpdateOpsToolsConfigResponse, UpdateProviderData, UpdateProviderError, UpdateProviderResponse, UpdateSearchProviderData, UpdateSearchProviderError, UpdateSearchProviderResponse, UpdateToolConfigData, UpdateToolConfigError, UpdateToolConfigResponse, UpdateTriggerData, UpdateTriggerError, UpdateTriggerResponse, UpsertChannelData, UpsertChannelError, UpsertChannelResponse, UpsertGuildData, UpsertGuildError, UpsertGuildResponse, UpsertRouteData, UpsertRouteError, UpsertRouteResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -740,6 +740,102 @@ export const updateCustomSkillMutation = (options?: Partial<Options<UpdateCustom
     const mutationOptions: UseMutationOptions<UpdateCustomSkillResponse, UpdateCustomSkillError, Options<UpdateCustomSkillData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateCustomSkill({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listGmodServersQueryKey = (options?: Options<ListGmodServersData>) => createQueryKey('listGmodServers', options);
+
+/**
+ * List Gmod Servers
+ *
+ * List configured GMod servers along with live Redis heartbeat status and registered handlers.
+ */
+export const listGmodServersOptions = (options?: Options<ListGmodServersData>) => queryOptions<ListGmodServersResponse, DefaultError, ListGmodServersResponse, ReturnType<typeof listGmodServersQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listGmodServers({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listGmodServersQueryKey(options)
+});
+
+/**
+ * Create Gmod Server
+ *
+ * Register a new GMod server and generate (or encrypt) its per-server Bearer token.
+ */
+export const createGmodServerMutation = (options?: Partial<Options<CreateGmodServerData>>): UseMutationOptions<CreateGmodServerResponse, CreateGmodServerError, Options<CreateGmodServerData>> => {
+    const mutationOptions: UseMutationOptions<CreateGmodServerResponse, CreateGmodServerError, Options<CreateGmodServerData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createGmodServer({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete Gmod Server
+ *
+ * Delete a GMod server registration.
+ */
+export const deleteGmodServerMutation = (options?: Partial<Options<DeleteGmodServerData>>): UseMutationOptions<DeleteGmodServerResponse, DeleteGmodServerError, Options<DeleteGmodServerData>> => {
+    const mutationOptions: UseMutationOptions<DeleteGmodServerResponse, DeleteGmodServerError, Options<DeleteGmodServerData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteGmodServer({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Update Gmod Server
+ *
+ * Update a GMod server's metadata or rotate its Bearer token.
+ */
+export const updateGmodServerMutation = (options?: Partial<Options<UpdateGmodServerData>>): UseMutationOptions<UpdateGmodServerResponse, UpdateGmodServerError, Options<UpdateGmodServerData>> => {
+    const mutationOptions: UseMutationOptions<UpdateGmodServerResponse, UpdateGmodServerError, Options<UpdateGmodServerData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await updateGmodServer({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Ping Gmod Server
+ *
+ * Run a live end-to-end ``ping`` RPC against one connected GMod server.
+ */
+export const pingGmodServerMutation = (options?: Partial<Options<PingGmodServerData>>): UseMutationOptions<PingGmodServerResponse, PingGmodServerError, Options<PingGmodServerData>> => {
+    const mutationOptions: UseMutationOptions<PingGmodServerResponse, PingGmodServerError, Options<PingGmodServerData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await pingGmodServer({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

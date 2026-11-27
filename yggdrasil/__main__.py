@@ -133,6 +133,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     from yggdrasil.bot import router as bot_router
     from yggdrasil.core.telemetry import shutdown_telemetry
     from yggdrasil.db.session import dispose_engine, init_engine
+    from yggdrasil.gmod.server import start_gmod_bridge, stop_gmod_bridge
     from yggdrasil.ingest.writer import WRITER
     from yggdrasil.kook import gateway as kook_gw
     from yggdrasil.moderation.review import expire_loop
@@ -173,11 +174,13 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if manager().configured:
         _tasks.append(asyncio.create_task(runner().run_forever(), name="sandbox-jobs"))
     await start_relay()
+    await start_gmod_bridge()
     LOGGER.info("yggdrasil KOOK bot started on {}:{}", APP_CONFIG.host, APP_CONFIG.port)
 
     try:
         yield
     finally:
+        await stop_gmod_bridge()
         await stop_relay()
         await gw.stop()
         for task in _tasks:

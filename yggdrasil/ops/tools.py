@@ -34,6 +34,7 @@ from yggdrasil.db.models import (
     TaskRoute,
 )
 from yggdrasil.db.session import get_session
+from yggdrasil.gmod import GModError, grant_singlepass, letin_player, list_queue, lookup_queue
 from yggdrasil.kook.client import Kook
 from yggdrasil.kook.model import Incoming, KookError
 from yggdrasil.kv import redis_client
@@ -47,7 +48,7 @@ _UNDO_KEEP = 20
 _UNDO_TTL_S = 7 * 86400
 
 ScopeLevel = Literal["global", "guild", "category", "channel"]
-OpsToolCategory = Literal["read", "config", "kook", "moderation"]
+OpsToolCategory = Literal["read", "config", "kook", "moderation", "gmod"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -843,6 +844,114 @@ async def kook_api(
     return text
 
 
+@_op("gmod_servers")
+async def gmod_servers(ctx: RunContext[OpsDeps]) -> str:
+    """列出已配置的 GMod 服务器及其通信在线状态、已注册的 Lua 动作列表与心跳元数据。"""
+    from yggdrasil.gmod.bridge import get_heartbeat
+
+    servers = snapshot().gmod_servers
+    if not servers:
+        return "尚未配置任何 GMod 服务器（请在控制台「工具与技能 → GMod 通信」中添加）。"
+    rows = []
+    for srv in servers.values():
+        hb = await get_heartbeat(srv.id)
+        rows.append(
+            {
+                "id": srv.id,
+                "name": srv.name,
+                "enabled": srv.enabled,
+                "online": bool(hb and hb.online),
+                "handlers": list(hb.handlers) if hb else [],
+                "meta": dict(hb.meta) if hb else {},
+                "note": srv.note,
+            }
+        )
+    return _json(rows)
+
+
+@_op("gmod_ping")
+async def gmod_ping(ctx: RunContext[OpsDeps], server_id: str) -> str:
+    """向指定 GMod 服务器发送 ping 探活，验证通信链路是否正常并返回往返延迟与响应。"""
+    from yggdrasil.gmod.bridge import call as gmod_call
+
+    try:
+        res = await gmod_call(server_id, "ping", {"source": f"ops:{ctx.deps.user_id}"}, timeout_s=8.0)
+    except GModError as e:
+        raise ToolError(str(e)) from e
+    if not res.ok:
+        raise ToolError(res.error or f"GMod 服务器 {server_id} 返回失败")
+    return _json({"server_id": res.server_id, "latency_ms": res.latency_ms, "data": res.data})
+
+
+@_op("gmod_queue_lookup")
+async def gmod_queue_lookup(ctx: RunContext[OpsDeps], steamid: str, server_id: str | None = None) -> str:
+    """按 SteamID 或 SteamID64 查询玩家的 GMod 排队位次、进服状态及通行证。可指定游戏服 ID 或名称。"""
+    try:
+        return _json(await lookup_queue(steamid, server_id))
+    except (ValueError, GModError) as e:
+        raise ToolError(str(e)) from e
+
+
+@_op("gmod_queue_list")
+async def gmod_queue_list(ctx: RunContext[OpsDeps], server_id: str | None = None) -> str:
+    """查询指定 GMod 游戏服的完整队列、容量和有效通行证。server_id 可填游戏服 ID 或名称。"""
+    try:
+        return _json(await list_queue(server_id))
+    except (ValueError, GModError) as e:
+        raise ToolError(str(e)) from e
+
+
+async def _audit_gmod_queue(actor: str, action: str, result: dict[str, Any]) -> None:
+    async with get_session() as s:
+        s.add(
+            ConfigAudit(
+                actor=actor,
+                entity="gmod_queue",
+                entity_id=f"{result['server_id']}:{result['steamid']}",
+                action=action,
+                detail=result,
+            )
+        )
+
+
+@_op("gmod_queue_singlepass", write=True)
+async def gmod_queue_singlepass(
+    ctx: RunContext[OpsDeps], steamid: str, server_id: str | None = None, ttl_s: int | None = None
+) -> str:
+    """为 SteamID 或 SteamID64 发放一次性通行证，已排队时同时请求强制放行。
+
+    ttl_s 可填 30–3600 秒，省略时使用游戏服默认值。
+    """
+    try:
+        result = await grant_singlepass(steamid, server_id, ttl_s=ttl_s, actor=ctx.deps.actor)
+    except (ValueError, GModError) as e:
+        raise ToolError(str(e)) from e
+    await _audit_gmod_queue(ctx.deps.actor, "singlepass", result)
+    message = f"已在 {result['server_name']} 为 {result['steamid']} 发放 SinglePass，有效期 {result['ttl_s']} 秒"
+    if result["queued_manual_letin"]:
+        message += "，并登记了强制放行请求"
+        if result["drain_halted"]:
+            message += "（晋升泵已暂停）"
+        elif result["engine_full"]:
+            message += "（等待引擎空位）"
+    elif result["was_in_queue"]:
+        message += "，但强制放行请求登记失败"
+    return message
+
+
+@_op("gmod_queue_letin", write=True)
+async def gmod_queue_letin(ctx: RunContext[OpsDeps], steamid: str, server_id: str | None = None) -> str:
+    """请求强制放行当前在队列中的玩家。steamid 支持 SteamID 或 SteamID64。可指定游戏服 ID 或名称。"""
+    try:
+        result = await letin_player(steamid, server_id, actor=ctx.deps.actor)
+    except (ValueError, GModError) as e:
+        raise ToolError(str(e)) from e
+    await _audit_gmod_queue(ctx.deps.actor, "letin", result)
+    status = "已存在强制放行请求" if result["already_pending_letin"] else "已登记强制放行请求"
+    wait = "（等待引擎空位）" if result["engine_full"] else ""
+    return f"{result['server_name']} 中的 {result['steamid']} {status}{wait}"
+
+
 OPS_TOOL_SPECS: tuple[OpsToolSpec, ...] = (
     OpsToolSpec("status", "运行状态总览", "read", False, False, "查看配置版本、启用频道、已配路由与待审核数。", status),
     OpsToolSpec("get_settings", "查看设置", "read", False, False, "查询四级配置与生效值。", get_settings),
@@ -964,6 +1073,54 @@ OPS_TOOL_SPECS: tuple[OpsToolSpec, ...] = (
         False,
         "撤回/删除被回复的那条机器人消息。",
         recall_message,
+    ),
+    OpsToolSpec(
+        "gmod_servers",
+        "GMod 服务器列表",
+        "gmod",
+        False,
+        False,
+        "查看已配置的 GMod 服务器连接状态与已注册动作。",
+        gmod_servers,
+    ),
+    OpsToolSpec(
+        "gmod_ping",
+        "GMod 通信探活",
+        "gmod",
+        False,
+        False,
+        "向指定 GMod 服务器发送 ping 验证长轮询通信链路。",
+        gmod_ping,
+    ),
+    OpsToolSpec(
+        "gmod_queue_lookup",
+        "GMod 玩家排队查询",
+        "gmod",
+        False,
+        False,
+        "按 SteamID 查询玩家排队及进服状态。",
+        gmod_queue_lookup,
+    ),
+    OpsToolSpec(
+        "gmod_queue_list",
+        "GMod 完整队列",
+        "gmod",
+        False,
+        False,
+        "查看完整队列、游戏服容量与有效通行证。",
+        gmod_queue_list,
+    ),
+    OpsToolSpec(
+        "gmod_queue_singlepass",
+        "GMod 发放 SinglePass",
+        "gmod",
+        True,
+        False,
+        "授予玩家一次性通行证，目标已排队时同时请求强制放行。",
+        gmod_queue_singlepass,
+    ),
+    OpsToolSpec(
+        "gmod_queue_letin", "GMod 直接放行", "gmod", True, False, "登记当前排队玩家的强制放行请求。", gmod_queue_letin
     ),
 )
 

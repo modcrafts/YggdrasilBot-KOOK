@@ -3,12 +3,15 @@ import { Link } from "@tanstack/react-router";
 import {
   ArrowUpRightIcon,
   CheckCircle2Icon,
+  CopyIcon,
   FileUpIcon,
   KeyRoundIcon,
   PencilIcon,
   PlusIcon,
+  RadioIcon,
   RotateCcwIcon,
   SearchIcon,
+  ServerIcon,
   Settings2Icon,
   ShieldIcon,
   SparklesIcon,
@@ -20,25 +23,32 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   createCustomSkillMutation,
+  createGmodServerMutation,
   deleteCustomSkillMutation,
+  deleteGmodServerMutation,
   getOpsToolsOverviewOptions,
   getScopeSettingsOptions,
   getSkillsOverviewOptions,
   getToolsOverviewOptions,
+  listGmodServersOptions,
   listGuildsOptions,
   listKookGuildRolesOptions,
   listProvidersOptions,
+  pingGmodServerMutation,
   putScopeSettingsMutation,
   testProvenanceToolMutation,
   updateBuiltinSkillMutation,
   updateCustomSkillMutation,
   updateGeneralToolPolicyMutation,
+  updateGmodServerMutation,
   updateOpsToolsConfigMutation,
   updateToolConfigMutation,
 } from "@/client/@tanstack/react-query.gen";
 import type {
   BuiltinSkillOut,
   CustomSkillOut,
+  GModBridgeOverviewOut,
+  GModServerOut,
   OpsRoleRule,
   OpsToolOut,
   OpsToolsOverviewOut,
@@ -74,7 +84,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { isPlainObject } from "@/lib/format";
+import { fmtTime, isPlainObject } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type ToolCategory = ToolItemOut["category"];
@@ -87,6 +97,7 @@ const CATEGORY_META: { value: ToolCategory | "all"; label: string }[] = [
   { value: "memory", label: "历史与记忆" },
   { value: "render", label: "渲染与画图" },
   { value: "sandbox", label: "工作区套件" },
+  { value: "gmod", label: "GMod 游戏服" },
 ];
 
 const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
@@ -98,6 +109,7 @@ const OPS_CATEGORY_LABELS: Record<string, string> = {
   config: "配置与频道管理",
   moderation: "审核与消息处理",
   kook: "KOOK API",
+  gmod: "GMod 服务器",
 };
 
 function statusBadgeVariant(status: ToolStatus): "default" | "secondary" | "destructive" | "outline" {
@@ -142,6 +154,7 @@ export function ToolsPage() {
   const toolsQ = useQuery(getToolsOverviewOptions());
   const skillsQ = useQuery(getSkillsOverviewOptions());
   const opsQ = useQuery(getOpsToolsOverviewOptions());
+  const gmodQ = useQuery({ ...listGmodServersOptions(), refetchInterval: 15_000 });
   const providersQ = useQuery(listProvidersOptions());
 
   return (
@@ -180,6 +193,11 @@ export function ToolsPage() {
             管理助手 (ops)
             {opsQ.data && <Badge variant="secondary" className="ml-1 text-[11px]">{opsQ.data.tools.length}</Badge>}
           </TabsTrigger>
+          <TabsTrigger value="gmod" className="gap-1.5">
+            <RadioIcon className="size-3.5" aria-hidden />
+            GMod 通信
+            {gmodQ.data && <Badge variant="secondary" className="ml-1 text-[11px]">{gmodQ.data.servers.length}</Badge>}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="tools">
@@ -197,6 +215,10 @@ export function ToolsPage() {
 
         <TabsContent value="ops">
           <OpsTab data={opsQ.data} isLoading={opsQ.isLoading} error={opsQ.error} />
+        </TabsContent>
+
+        <TabsContent value="gmod">
+          <GModBridgeTab data={gmodQ.data} isLoading={gmodQ.isLoading} error={gmodQ.error} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1891,6 +1913,315 @@ function OpsRoleRuleDialog({
           <MultiToggle options={globalWriteActions} value={writes} onChange={setWrites} />
         </Field>
       )}
+    </FormDialog>
+  );
+}
+
+// --- Tab 4: GMod Multi-Server Bridge (Pure Transport) --------------------------------
+
+function GModBridgeTab({
+  data,
+  isLoading,
+  error,
+}: {
+  data: GModBridgeOverviewOut | undefined;
+  isLoading: boolean;
+  error: unknown;
+}) {
+  const [editing, setEditing] = useState<GModServerOut | "new" | null>(null);
+  const [revealed, setRevealed] = useState<{ serverId: string; token: string } | null>(null);
+  const [pingResult, setPingResult] = useState<{ serverId: string; ok: boolean; latency_ms: number; data?: unknown; error?: string | null } | null>(null);
+
+  const remove = useMutation({
+    ...deleteGmodServerMutation(),
+    onSuccess: () => toast.success("已删除 GMod 服务器配置"),
+  });
+
+  const ping = useMutation({
+    ...pingGmodServerMutation(),
+    onSuccess: (res, vars) => {
+      setPingResult({ serverId: vars.path.server_id, ...res });
+      if (res.ok) toast.success(`${vars.path.server_id} 探活成功（${res.latency_ms}ms）`);
+      else toast.error(res.error ?? "Ping 失败");
+    },
+  });
+
+  if (!data) {
+    return <QueryState isLoading={isLoading} error={error} variant="card" />;
+  }
+
+  const copyText = (txt: string, label: string) => {
+    void navigator.clipboard.writeText(txt).then(() => toast.success(`已复制${label}`));
+  };
+
+  return (
+    <div className="grid gap-6">
+      <Card>
+        <CardHeader className="py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="text-base">GMod 长轮询通信桥接（多服）</CardTitle>
+                <Badge variant={data.serving ? "secondary" : "outline"}>
+                  {data.serving ? `监听中 :${data.bridge_port}` : data.bridge_port > 0 ? `端口 :${data.bridge_port}` : "已禁用"}
+                </Badge>
+              </div>
+              <CardDescription className="mt-1 text-xs">
+                同机翼龙容器走内网（例如 <code className="font-mono">http://172.18.0.1:{data.bridge_port || 8091}/bridge/gmod</code>），
+                跨机服务器可通过 Caddy / Nginx 反代 <code className="font-mono">https://你的域名/bridge/gmod/* → bot:{data.bridge_port || 8091}</code> 走公网 HTTPS。
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setEditing("new")}>
+              <PlusIcon data-icon="inline-start" /> 添加服务器
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {revealed && (
+        <Alert>
+          <KeyRoundIcon className="size-4" />
+          <AlertTitle>新生成的 Token（仅展示这一次，请立即复制保存）</AlertTitle>
+          <AlertDescription className="mt-2 grid gap-2">
+            <pre className="rounded-md bg-muted p-2.5 font-mono text-xs whitespace-pre-wrap text-foreground">
+              {[
+                `ygg_bridge_url "http://172.18.0.1:${data.bridge_port || 8091}/bridge/gmod"  // 跨机请改为 https://你的域名/bridge/gmod`,
+                `ygg_bridge_server_id "${revealed.serverId}"`,
+                `ygg_bridge_token "${revealed.token}"`,
+                `ygg_bridge_enabled "1"`,
+              ].join("\n")}
+            </pre>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => copyText(revealed.token, "Token")}>
+                <CopyIcon data-icon="inline-start" /> 复制 Token
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  copyText(
+                    `ygg_bridge_url "http://172.18.0.1:${data.bridge_port || 8091}/bridge/gmod"\nygg_bridge_server_id "${revealed.serverId}"\nygg_bridge_token "${revealed.token}"\nygg_bridge_enabled "1"`,
+                    "server.cfg 配置段",
+                  )
+                }
+              >
+                <CopyIcon data-icon="inline-start" /> 复制 server.cfg 配置段
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
+                我已保存，关闭提示
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {pingResult && (
+        <Alert variant={pingResult.ok ? "default" : "destructive"}>
+          <AlertTitle>
+            {pingResult.serverId} Ping {pingResult.ok ? `成功（${pingResult.latency_ms}ms）` : "失败"}
+          </AlertTitle>
+          <AlertDescription className="mt-1">
+            {pingResult.ok ? (
+              <pre className="rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap text-foreground">
+                {JSON.stringify(pingResult.data, null, 2)}
+              </pre>
+            ) : (
+              <span>{pingResult.error}</span>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {data.servers.length === 0 ? (
+        <Empty
+          icon={<ServerIcon />}
+          description="添加服务器后会生成独立的加密 Bearer Token，将配置填入 GMod 端的 ygg_bridge 插件即可自动上线。"
+          action={
+            <Button size="sm" onClick={() => setEditing("new")}>
+              <PlusIcon data-icon="inline-start" /> 添加第一台 GMod 服务器
+            </Button>
+          }
+        >
+          还没有配置 GMod 服务器
+        </Empty>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {data.servers.map((srv) => (
+            <Card key={srv.id} className={cn("flex flex-col", !srv.enabled && "opacity-70")}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle className="text-base">{srv.name}</CardTitle>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        {srv.id}
+                      </code>
+                      <Badge variant={srv.online ? "default" : "outline"} className="text-[11px]">
+                        {srv.online ? "在线" : "离线"}
+                      </Badge>
+                      {!srv.enabled && (
+                        <Badge variant="secondary" className="text-[11px]">
+                          已停用
+                        </Badge>
+                      )}
+                    </div>
+                    {srv.note && <CardDescription className="mt-1 text-xs">{srv.note}</CardDescription>}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="grid flex-1 gap-2 pt-0 text-xs">
+                <Meta
+                  items={[
+                    `Token: ${srv.token_masked ?? "—"}`,
+                    srv.remote_ip ? `来源 IP: ${srv.remote_ip}` : null,
+                    srv.last_seen ? `最近心跳: ${fmtTime(srv.last_seen)}` : "尚未连接",
+                  ]}
+                />
+                {!!srv.handlers?.length && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-muted-foreground">已注册动作：</span>
+                    {srv.handlers.map((h) => (
+                      <Badge key={h} variant="outline" className="font-mono text-[11px] font-normal">
+                        {h}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="flex justify-end gap-1.5 border-t pt-3">
+                <PendingButton
+                  size="sm"
+                  variant="outline"
+                  pending={ping.isPending && ping.variables?.path.server_id === srv.id}
+                  disabled={!srv.enabled}
+                  onClick={() => ping.mutate({ path: { server_id: srv.id } })}
+                >
+                  <ZapIcon data-icon="inline-start" /> Ping
+                </PendingButton>
+                <Button size="sm" variant="outline" onClick={() => setEditing(srv)}>
+                  <PencilIcon data-icon="inline-start" /> 编辑
+                </Button>
+                <ConfirmButton
+                  title={`删除 GMod 服务器「${srv.name}」？`}
+                  description="删除后该服务器将无法通过长轮询鉴权。"
+                  onConfirm={() => remove.mutate({ path: { server_id: srv.id } })}
+                >
+                  删除
+                </ConfirmButton>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <GModServerDialog
+          server={editing === "new" ? null : editing}
+          onCreated={(sid, token) => {
+            setEditing(null);
+            if (token) setRevealed({ serverId: sid, token });
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function GModServerDialog({
+  server,
+  onCreated,
+  onClose,
+}: {
+  server: GModServerOut | null;
+  onCreated: (serverId: string, token: string | null) => void;
+  onClose: () => void;
+}) {
+  const isEdit = server !== null;
+  const [id, setId] = useState(server?.id ?? "");
+  const [name, setName] = useState(server?.name ?? "");
+  const [note, setNote] = useState(server?.note ?? "");
+  const [enabled, setEnabled] = useState(server?.enabled ?? true);
+  const [token, setToken] = useState("");
+  const [rotateToken, setRotateToken] = useState(false);
+
+  const create = useMutation({
+    ...createGmodServerMutation(),
+    onSuccess: (res) => {
+      toast.success("已添加 GMod 服务器");
+      onCreated(res.server.id, res.plaintext_token ?? null);
+    },
+  });
+
+  const update = useMutation({
+    ...updateGmodServerMutation(),
+    onSuccess: (res) => {
+      toast.success("已更新 GMod 服务器");
+      onCreated(res.server.id, res.plaintext_token ?? null);
+    },
+  });
+
+  const submit = () => {
+    if (isEdit) {
+      update.mutate({
+        path: { server_id: server.id },
+        body: { name, note, enabled, token: token.trim() || null, rotate_token: rotateToken },
+      });
+    } else {
+      create.mutate({
+        body: { id: id.trim(), name, note, enabled, token: token.trim() || null },
+      });
+    }
+  };
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={isEdit ? `编辑 GMod 服务器：${server.name}` : "添加 GMod 服务器"}
+      description="每台 GMod 服务器使用独立 ID 与加密 Bearer Token，支持同机内网或跨机公网 HTTPS 接入。"
+      onSubmit={submit}
+      pending={create.isPending || update.isPending}
+      submitDisabled={!(isEdit || id.trim()) || !name.trim()}
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="服务器 ID" hint={isEdit ? "创建后不可修改" : "小写字母/数字/-/_，如 main、ttt-1"}>
+          <Input
+            required
+            disabled={isEdit}
+            className="font-mono text-xs"
+            placeholder="main"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+          />
+        </Field>
+        <Field label="显示名称">
+          <Input required placeholder="主服 (Sandbox)" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+      </div>
+      <Field label="备注（可选）" hint="例如「同机翼龙内网」或「香港节点公网 HTTPS」">
+        <Input placeholder="同机翼龙内网" value={note} onChange={(e) => setNote(e.target.value)} />
+      </Field>
+      <Field
+        label={isEdit ? "自定义替换 Token（留空保持不变）" : "自定义 Token（留空自动生成强随机密钥）"}
+        hint={isEdit ? `当前 Token：${server.token_masked ?? "无"}` : undefined}
+      >
+        <Input
+          type="password"
+          placeholder={isEdit ? "留空保持原 Token" : "留空自动生成"}
+          value={token}
+          disabled={rotateToken}
+          onChange={(e) => setToken(e.target.value)}
+        />
+      </Field>
+      {isEdit && (
+        <Field label="轮换并自动生成新 Token" hint="勾选后旧 Token 将立即失效，保存后弹出新 Token" orientation="horizontal">
+          <Switch checked={rotateToken} onCheckedChange={setRotateToken} />
+        </Field>
+      )}
+      <Field label="启用该服务器" orientation="horizontal">
+        <Switch checked={enabled} onCheckedChange={setEnabled} />
+      </Field>
     </FormDialog>
   );
 }

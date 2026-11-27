@@ -105,6 +105,10 @@ class AppConfig(BaseSettings):
     # it. The bot process serves it on its own port so only that port has to be opened to sandbox pods.
     relay_url: str | None = Field(default=None, alias="YGG_RELAY_URL")
     relay_port: int = Field(default=8090, alias="YGG_RELAY_PORT")
+    # Internal HTTP bridge for GMod Lua servers (yggdrasil.gmod): serves /bridge/gmod/* on its own port so LAN/Wings
+    # containers connect directly and remote servers can connect via a reverse-proxied public HTTPS URL.
+    # Set YGG_GMOD_BRIDGE_PORT=0 to disable.
+    gmod_bridge_port: int = Field(default=8091, alias="YGG_GMOD_BRIDGE_PORT")
 
 
 DB_CONFIG = DbConfig()

@@ -36,6 +36,16 @@ from yggdrasil.settings import Settings, merge_settings
 CHANNEL = "ygg:config"
 TOOL_SECRETS_KEY = "tool.secrets"
 SKILLS_CONFIG_KEY = "skills.config"
+GMOD_SERVERS_KEY = "gmod.servers"
+
+
+@dataclass(frozen=True, slots=True)
+class GModServerInfo:
+    id: str
+    name: str
+    enabled: bool = True
+    token: str | None = None
+    note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +178,7 @@ class Snapshot:
     tool_secrets: dict[str, ToolSecretInfo] = field(default_factory=dict)
     custom_skills: dict[str, CustomSkillInfo] = field(default_factory=dict)
     builtin_skill_overrides: dict[str, BuiltinSkillOverrideInfo] = field(default_factory=dict)
+    gmod_servers: dict[str, GModServerInfo] = field(default_factory=dict)
     _settings_cache: dict[tuple[str | None, str | None, str | None], Settings] = field(default_factory=dict, repr=False)
 
     def guild_of(self, channel_id: str | None) -> str | None:
@@ -349,6 +360,7 @@ async def load() -> Snapshot:
         doc = await session.get(SettingsDoc, "global")
         secrets_doc = await session.get(SettingsDoc, TOOL_SECRETS_KEY)
         skills_doc = await session.get(SettingsDoc, SKILLS_CONFIG_KEY)
+        gmod_doc = await session.get(SettingsDoc, GMOD_SERVERS_KEY)
         triggers = tuple(
             TriggerRule(
                 t.id,
@@ -383,6 +395,7 @@ async def load() -> Snapshot:
     }
     tool_secrets = _parse_tool_secrets(secrets_doc.value if secrets_doc else {})
     custom_skills, builtin_skill_overrides = _parse_skills_config(skills_doc.value if skills_doc else {})
+    gmod_servers = _parse_gmod_servers(gmod_doc.value if gmod_doc else {})
     _snapshot = Snapshot(
         version=_snapshot.version + 1,
         providers=providers,
@@ -399,6 +412,7 @@ async def load() -> Snapshot:
         tool_secrets=tool_secrets,
         custom_skills=custom_skills,
         builtin_skill_overrides=builtin_skill_overrides,
+        gmod_servers=gmod_servers,
     )
     for fn in _listeners:
         result = fn(_snapshot)
@@ -484,6 +498,28 @@ def _parse_skills_config(raw: Any) -> tuple[dict[str, CustomSkillInfo], dict[str
             extra_text = str(item.get("extra_instructions") or "").strip()
             overrides[sid] = BuiltinSkillOverrideInfo(extra_instructions=extra_text)
     return custom, overrides
+
+
+def _parse_gmod_servers(raw: Any) -> dict[str, GModServerInfo]:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, GModServerInfo] = {}
+    for item in raw.get("servers") or ():
+        if not isinstance(item, dict):
+            continue
+        sid = str(item.get("id") or "").strip()
+        if not sid:
+            continue
+        enc_raw = item.get("token_enc")
+        enc_bytes = enc_raw.encode() if isinstance(enc_raw, str) and enc_raw else None
+        out[sid] = GModServerInfo(
+            id=sid,
+            name=str(item.get("name") or sid).strip() or sid,
+            enabled=bool(item.get("enabled", True)),
+            token=_decrypt_key(enc_bytes, f"gmod:{sid}"),
+            note=str(item.get("note") or "").strip(),
+        )
+    return out
 
 
 async def publish_change(reason: str) -> None:

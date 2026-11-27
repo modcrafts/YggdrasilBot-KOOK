@@ -27,7 +27,14 @@ from yggdrasil.db.models import EmbedSpace, Provider, SearchProvider, SettingsDo
 from yggdrasil.db.session import get_session
 from yggdrasil.llm.catalog import ModelCaps
 from yggdrasil.ops.tools import _KOOK_NEVER, OPS_TOOL_SPECS, OpsToolCategory
-from yggdrasil.runtime import SKILLS_CONFIG_KEY, TOOL_SECRETS_KEY, ProviderInfo, ToolSecretInfo
+from yggdrasil.runtime import (
+    GMOD_SERVERS_KEY,
+    SKILLS_CONFIG_KEY,
+    TOOL_SECRETS_KEY,
+    ProviderInfo,
+    ToolSecretInfo,
+    _parse_gmod_servers,
+)
 from yggdrasil.settings import OpsRoleRule, OpsToolName, Settings, ToolName, ToolSettings, merge_settings
 from yggdrasil.tools.provenance import (
     OPENAI_DEFAULT_BASE,
@@ -41,7 +48,7 @@ from yggdrasil.tools.search import WEB_KINDS
 
 router = APIRouter(tags=["tools"])
 
-ToolCategory = Literal["web", "media", "memory", "render", "sandbox"]
+ToolCategory = Literal["web", "media", "memory", "render", "sandbox", "gmod"]
 ToolStatus = Literal["ready", "warning", "unconfigured", "disabled"]
 SkillHandler = Literal["chat", "tldr"]
 ParamValueType = Literal["integer", "number", "boolean", "string", "enum"]
@@ -305,6 +312,20 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         param_keys=("generate_image_max_references",),
         related_route="/routes",
         related_label="模型路由",
+    ),
+    ToolSpec(
+        id="gmod_queue_lookup",
+        name="GMod 玩家排队查询",
+        category="gmod",
+        description="按 SteamID 或 SteamID64 查看玩家排队位次、进服状态及通行证。",
+        handlers=("chat",),
+    ),
+    ToolSpec(
+        id="gmod_queue_list",
+        name="GMod 完整队列",
+        category="gmod",
+        description="查看 GMod 游戏服的完整队列、容量及有效通行证。",
+        handlers=("chat",),
     ),
     ToolSpec(
         id="sandbox",
@@ -709,6 +730,7 @@ def _diagnose_tool(
     search_providers: list[SearchProvider],
     routes: dict[str, TaskRoute],
     has_embed: bool,
+    enabled_gmod_servers: int,
     secret_raw: dict[str, Any] | None,
 ) -> tuple[ToolStatus, str, str]:
     enabled = spec.id in effective.tools.enabled
@@ -716,6 +738,11 @@ def _diagnose_tool(
         if spec.id == "generate_image":
             return "disabled", "默认关闭", "需配置 image 模型路由后按需开启"
         return "disabled", "全局默认关闭", "可在「服务器与频道」单独覆盖开启"
+
+    if spec.category == "gmod":
+        if not enabled_gmod_servers:
+            return "unconfigured", "未配置 GMod 服务器", "请前往「GMod 通信」标签页添加并启用服务器"
+        return "ready", "GMod 通信已配置", f"已启用 {enabled_gmod_servers} 台 GMod 服务器"
 
     t = effective.tools
     enabled_search = [s for s in search_providers if s.enabled]
@@ -844,6 +871,7 @@ async def _load_tools_overview() -> ToolsOverviewOut:
     async with get_session() as s:
         global_row = await s.get(SettingsDoc, "global")
         secrets_row = await s.get(SettingsDoc, TOOL_SECRETS_KEY)
+        gmod_row = await s.get(SettingsDoc, GMOD_SERVERS_KEY)
         provider_rows = (await s.scalars(select(Provider))).all()
         search_stmt = select(SearchProvider).order_by(SearchProvider.priority, SearchProvider.id)
         search_rows = list((await s.scalars(search_stmt)).all())
@@ -855,6 +883,8 @@ async def _load_tools_overview() -> ToolsOverviewOut:
     effective = merge_settings(global_val)
     defaults = Settings()
 
+    gmod_servers = _parse_gmod_servers(gmod_row.value if gmod_row else {})
+    enabled_gmod_servers = sum(server.enabled for server in gmod_servers.values())
     providers = {p.id: _provider_info(p) for p in provider_rows}
     routes = {r.task: r for r in route_rows}
     eff_tools = effective.tools.model_dump(mode="json")
@@ -872,6 +902,7 @@ async def _load_tools_overview() -> ToolsOverviewOut:
             search_providers=search_rows,
             routes=routes,
             has_embed=active_embed is not None,
+            enabled_gmod_servers=enabled_gmod_servers,
             secret_raw=sec_raw if isinstance(sec_raw, dict) else None,
         )
         items.append(

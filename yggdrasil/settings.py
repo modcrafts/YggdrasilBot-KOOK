@@ -29,6 +29,8 @@ ToolName = Literal[
     "render_markdown",
     "render_html",
     "generate_image",
+    "gmod_queue_lookup",
+    "gmod_queue_list",
     "sandbox",
 ]
 
@@ -282,6 +284,8 @@ class ToolSettings(BaseModel):
             "render_mermaid",
             "render_markdown",
             "render_html",
+            "gmod_queue_lookup",
+            "gmod_queue_list",
             "sandbox",
         ],
         description="启用的工具（按全局/服务器/分组/频道可勾选开关）；sandbox 表示整套工作区工具；"
@@ -417,6 +421,12 @@ OpsToolName = Literal[
     "set_route",
     "undo_last_change",
     "recall_message",
+    "gmod_servers",
+    "gmod_ping",
+    "gmod_queue_lookup",
+    "gmod_queue_list",
+    "gmod_queue_singlepass",
+    "gmod_queue_letin",
 ]
 
 

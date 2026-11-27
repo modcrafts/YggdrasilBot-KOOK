@@ -1271,6 +1271,8 @@
                 "render_markdown",
                 "render_html",
                 "generate_image",
+                "gmod_queue_lookup",
+                "gmod_queue_list",
                 "sandbox"
               ],
               "type": "string",
@@ -1548,6 +1550,205 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gmod/servers": {
+      "get": {
+        "tags": [
+          "gmod"
+        ],
+        "summary": "List Gmod Servers",
+        "description": "List configured GMod servers along with live Redis heartbeat status and registered handlers.",
+        "operationId": "list_gmod_servers",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GModBridgeOverviewOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "gmod"
+        ],
+        "summary": "Create Gmod Server",
+        "description": "Register a new GMod server and generate (or encrypt) its per-server Bearer token.",
+        "operationId": "create_gmod_server",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GModServerCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GModServerCreatedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gmod/servers/{server_id}": {
+      "put": {
+        "tags": [
+          "gmod"
+        ],
+        "summary": "Update Gmod Server",
+        "description": "Update a GMod server's metadata or rotate its Bearer token.",
+        "operationId": "update_gmod_server",
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Server Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GModServerUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GModServerCreatedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "gmod"
+        ],
+        "summary": "Delete Gmod Server",
+        "description": "Delete a GMod server registration.",
+        "operationId": "delete_gmod_server",
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Server Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gmod/servers/{server_id}/ping": {
+      "post": {
+        "tags": [
+          "gmod"
+        ],
+        "summary": "Ping Gmod Server",
+        "description": "Run a live end-to-end ``ping`` RPC against one connected GMod server.",
+        "operationId": "ping_gmod_server",
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Server Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GModPingOut"
                 }
               }
             }
@@ -7021,6 +7222,252 @@
         ],
         "title": "ForumThreadOut"
       },
+      "GModBridgeOverviewOut": {
+        "properties": {
+          "bridge_port": {
+            "type": "integer",
+            "title": "Bridge Port"
+          },
+          "serving": {
+            "type": "boolean",
+            "title": "Serving"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/GModServerOut"
+            },
+            "type": "array",
+            "title": "Servers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bridge_port",
+          "serving",
+          "servers"
+        ],
+        "title": "GModBridgeOverviewOut"
+      },
+      "GModPingOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "data": {
+            "title": "Data"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "latency_ms"
+        ],
+        "title": "GModPingOut"
+      },
+      "GModServerCreateIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Note",
+            "default": ""
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "GModServerCreateIn"
+      },
+      "GModServerCreatedOut": {
+        "properties": {
+          "server": {
+            "$ref": "#/components/schemas/GModServerOut"
+          },
+          "plaintext_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plaintext Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "server"
+        ],
+        "title": "GModServerCreatedOut"
+      },
+      "GModServerOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "token_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Masked"
+          },
+          "online": {
+            "type": "boolean",
+            "title": "Online"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "remote_ip": {
+            "type": "string",
+            "title": "Remote Ip",
+            "default": ""
+          },
+          "protocol_version": {
+            "type": "string",
+            "title": "Protocol Version",
+            "default": ""
+          },
+          "handlers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Handlers"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "enabled",
+          "note",
+          "token_masked",
+          "online"
+        ],
+        "title": "GModServerOut"
+      },
+      "GModServerUpdateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Note",
+            "default": ""
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "rotate_token": {
+            "type": "boolean",
+            "title": "Rotate Token",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "GModServerUpdateIn"
+      },
       "GeneralToolPolicyIn": {
         "properties": {
           "request_limit": {
@@ -8674,7 +9121,13 @@
                 "delete_trigger",
                 "set_route",
                 "undo_last_change",
-                "recall_message"
+                "recall_message",
+                "gmod_servers",
+                "gmod_ping",
+                "gmod_queue_lookup",
+                "gmod_queue_list",
+                "gmod_queue_singlepass",
+                "gmod_queue_letin"
               ]
             },
             "type": "array",
@@ -8725,7 +9178,13 @@
               "delete_trigger",
               "set_route",
               "undo_last_change",
-              "recall_message"
+              "recall_message",
+              "gmod_servers",
+              "gmod_ping",
+              "gmod_queue_lookup",
+              "gmod_queue_list",
+              "gmod_queue_singlepass",
+              "gmod_queue_letin"
             ],
             "title": "Id"
           },
@@ -8739,7 +9198,8 @@
               "read",
               "config",
               "kook",
-              "moderation"
+              "moderation",
+              "gmod"
             ],
             "title": "Category"
           },
@@ -11303,6 +11763,8 @@
               "render_markdown",
               "render_html",
               "generate_image",
+              "gmod_queue_lookup",
+              "gmod_queue_list",
               "sandbox"
             ],
             "title": "Id"
@@ -11318,7 +11780,8 @@
               "media",
               "memory",
               "render",
-              "sandbox"
+              "sandbox",
+              "gmod"
             ],
             "title": "Category"
           },

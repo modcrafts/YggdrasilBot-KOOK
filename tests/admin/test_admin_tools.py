@@ -15,6 +15,7 @@ from yggdrasil.admin import tools_api
 from yggdrasil.config import APP_CONFIG
 from yggdrasil.crypto import decrypt, encrypt
 from yggdrasil.db.models import Provider, SearchProvider, SettingsDoc, TaskRoute
+from yggdrasil.runtime import GMOD_SERVERS_KEY
 from yggdrasil.tools.provenance import ProvenanceReport, ProvenanceSignal
 
 
@@ -123,7 +124,7 @@ async def test_tools_overview_and_per_tool_config_updates(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     items = {i["id"]: i for i in body["items"]}
-    assert len(items) == 17
+    assert len(items) == 19
     assert items["check_provenance"]["status"] == "ready"
     assert "OpenAI Official" in items["check_provenance"]["status_label"]
     assert items["check_provenance"]["provider_param_key"] == "provenance_provider"
@@ -147,6 +148,29 @@ async def test_tools_overview_and_per_tool_config_updates(
     # Reject unknown param for tool
     bad = await client.put("/api/tools/web_search", json={"params": {"file_max_mb": 50}})
     assert bad.status_code == 422
+
+
+@pytest.mark.parametrize("enabled_count", [None, 0, 2])
+async def test_gmod_queue_tools_diagnostics(
+    client: httpx.AsyncClient, fake_db: dict[str, Any], enabled_count: int | None
+) -> None:
+    if enabled_count is not None:
+        servers = [{"id": "disabled", "enabled": False}, *({"id": f"server{i}"} for i in range(enabled_count))]
+        fake_db["settings"][GMOD_SERVERS_KEY] = SettingsDoc(key=GMOD_SERVERS_KEY, value={"servers": servers})
+
+    resp = await client.get("/api/tools")
+    assert resp.status_code == 200, resp.text
+    tools = {item["id"]: item for item in resp.json()["items"] if item["category"] == "gmod"}
+    assert set(tools) == {"gmod_queue_lookup", "gmod_queue_list"}
+    for item in tools.values():
+        assert item["enabled"] is True
+        assert item["handlers"] == ["chat"]
+        if enabled_count:
+            assert item["status"] == "ready"
+            assert f"已启用 {enabled_count} 台" in item["status_detail"]
+        else:
+            assert item["status"] == "unconfigured"
+            assert "GMod 通信" in item["status_detail"]
 
 
 async def test_check_provenance_standalone_encrypted_secret_and_online_test(
@@ -289,6 +313,18 @@ async def test_ops_tools_overview_and_role_rules_api(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert len(body["tools"]) >= 20
+    gmod = {item["id"]: item for item in body["tools"] if item["category"] == "gmod"}
+    assert gmod.keys() == {
+        "gmod_servers",
+        "gmod_ping",
+        "gmod_queue_lookup",
+        "gmod_queue_list",
+        "gmod_queue_singlepass",
+        "gmod_queue_letin",
+    }
+    for tool_id, item in gmod.items():
+        assert item["global_only"] is False
+        assert item["write"] == (tool_id in {"gmod_queue_singlepass", "gmod_queue_letin"})
     assert "/guild/leave" in body["never_allowed"]
     assert body["role_rules"] == {}
 
@@ -303,7 +339,7 @@ async def test_ops_tools_overview_and_role_rules_api(
             "kook_write_actions": ["/message/pin", "/message/unpin"],
             "role_rules": {
                 "10086": {
-                    "tools": ["status", "kook_api", "decide_review"],
+                    "tools": ["status", "kook_api", "decide_review", "gmod_queue_singlepass", "gmod_queue_letin"],
                     "kook_write_actions": ["/message/pin"],
                     "guild_only": True,
                 }
@@ -313,6 +349,12 @@ async def test_ops_tools_overview_and_role_rules_api(
     assert upd.status_code == 200, upd.text
     updated = upd.json()
     assert updated["kook_write_actions"] == ["/message/pin", "/message/unpin"]
-    assert updated["role_rules"]["10086"]["tools"] == ["status", "kook_api", "decide_review"]
+    assert updated["role_rules"]["10086"]["tools"] == [
+        "status",
+        "kook_api",
+        "decide_review",
+        "gmod_queue_singlepass",
+        "gmod_queue_letin",
+    ]
     assert fake_db["settings"]["global"].value["ops"]["role_rules"]["10086"]["guild_only"] is True
     assert published

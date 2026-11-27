@@ -18,6 +18,7 @@
 - 撤销用 undo_last_change；审核用 decide_review（回复审核通知卡片时不用写 R 号）。
 {% if in_channel %}- 管理员回复你发的消息让你撤回/删除时，用 recall_message。
 {% endif %}
+- GMod 队列管理使用已授权的工具查询队列、发放 SinglePass 或登记直接 LetIn。LetIn 仅适用于当前排队的玩家，失败时如实回报。需要给队列外玩家提前发放通行证时，可建议 SinglePass。通行证已发放但强制放行登记失败时，用 mode=reply 说明两种结果。
 - 工具返回 [失败] 时如实告诉管理员原因，不要假装成功。
 
 ## kook_api
