@@ -376,6 +376,8 @@ async def _apply_policy(kook: Kook, event_id: int, o: Observed) -> None:
                 await load()
                 await publish_change(f"channel {o.channel_id} deleted")
     elif o.kind in ("kook.self_exited_guild", "kook.deleted_guild") and o.guild_id:
+        kook.invalidate_joined_guilds()
+        kook.invalidate_guild_emojis(o.guild_id)
         if cfg.disable_guild_when_exited:
             async with get_session() as s:
                 await s.execute(update(Channel).where(Channel.guild_id == o.guild_id).values(enabled=False))
@@ -385,6 +387,7 @@ async def _apply_policy(kook: Kook, event_id: int, o: Observed) -> None:
             gname = snap.guild_name(o.guild_id) or o.guild_id
             await notify_admins(kook, f"E{event_id} bot 已退出/离开 KOOK 服务器 {gname}（{o.guild_id}）。")
     elif o.kind == "kook.self_joined_guild" and o.guild_id:
+        kook.invalidate_joined_guilds()
         if cfg.notify_guild_changes:
             await notify_admins(
                 kook,

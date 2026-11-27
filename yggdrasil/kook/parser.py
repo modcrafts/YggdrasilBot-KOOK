@@ -16,6 +16,7 @@ from yggdrasil.kook.model import (
     ThreadCategory,
     ThreadMedia,
     ThreadTag,
+    emoji_origin_guild,
 )
 from yggdrasil.kook.segments import Segment
 
@@ -296,7 +297,8 @@ def parse_kmarkdown(
             out.append(seg.text(f"#{cname}" if cname else f"#{chn}"))
         elif (emj_id := m.group("emj_id")) is not None:
             emj_name = m.group("emj_name") or ""
-            out.append(seg.emoji(emj_id, emj_name, guild_id=guild_id))
+            origin_gid = emoji_origin_guild(emj_id) or guild_id
+            out.append(seg.emoji(emj_id, emj_name, guild_id=origin_gid))
     if pos < len(content):
         tail = content[pos:]
         if tail:

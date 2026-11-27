@@ -55,6 +55,7 @@ class FakeKook(Kook):
     forum_post_map: dict[tuple[str, str | None], list[ForumPost]] = field(default_factory=dict)
     invalidated_meta: list[str] = field(default_factory=list)
     invalidated_emojis: list[str] = field(default_factory=list)
+    invalidated_joined: int = 0
     _seq: int = 0
 
     @property
@@ -190,6 +191,9 @@ class FakeKook(Kook):
 
     def invalidate_guild_emojis(self, guild_id: str) -> None:
         self.invalidated_emojis.append(guild_id)
+
+    def invalidate_joined_guilds(self) -> None:
+        self.invalidated_joined += 1
 
     async def thread_categories(self, channel_id: str) -> list[ThreadCategory]:
         return list(self.thread_category_map.get(channel_id, ()))

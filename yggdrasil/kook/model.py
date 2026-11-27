@@ -219,6 +219,19 @@ class ForumPost:
     replies: tuple["ForumPost", ...] = ()
 
 
+def emoji_origin_guild(emoji_id: str | None) -> str | None:
+    """Extract the origin guild ID prefix from a KOOK custom emoji ID (``<guild_id>/<hash>``)."""
+    if not emoji_id:
+        return None
+    raw = emoji_id.strip()
+    if raw.startswith(("http://", "https://")):
+        return None
+    prefix, sep, rest = raw.partition("/")
+    if sep and prefix and rest:
+        return prefix
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class GuildEmoji:
     id: str

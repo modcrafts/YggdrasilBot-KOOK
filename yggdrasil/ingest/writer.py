@@ -17,7 +17,15 @@ from yggdrasil.db.partitions import ensure_month
 from yggdrasil.db.session import get_session
 from yggdrasil.ingest.normalize import normalize
 from yggdrasil.runtime import snapshot
-from yggdrasil.stickers.collect import COLLECTOR, PendingFetch, Sighting, UsageKey, record, sightings
+from yggdrasil.stickers.collect import (
+    COLLECTOR,
+    PendingFetch,
+    Sighting,
+    UsageKey,
+    enrich_emoji_sightings,
+    record,
+    sightings,
+)
 
 
 @dataclass(slots=True)
@@ -136,6 +144,9 @@ class IngestWriter:
                     sticker_seen[s.kind, s.ref] = s
                     sticker_usage[s.kind, s.ref, guild_id] += 1
                 image_candidates.extend(img_cands)
+
+        if sticker_seen:
+            await enrich_emoji_sightings(sticker_seen, sticker_usage)
 
         pending: list[PendingFetch] = []
         async with get_session() as session:

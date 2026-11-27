@@ -9,30 +9,41 @@ from pydantic_ai.capabilities import Capability
 from sqlalchemy import exists, false, or_, select
 
 from yggdrasil.agent.deps import Deps
-from yggdrasil.agent.media import media_type
-from yggdrasil.agent.tools.base import ToolResult, chat_tool
+from yggdrasil.agent.media import media_bytes, media_type
+from yggdrasil.agent.tools.base import ToolResult, chat_tool, resolve_ref
+from yggdrasil.agent.tools.images import needs_image_check
 from yggdrasil.db.models import Sticker, StickerBlob, StickerUsage
 from yggdrasil.db.session import get_session
+from yggdrasil.kook.model import emoji_origin_guild
+from yggdrasil.moderation.image import check_image
+from yggdrasil.stickers.collect import MAX_BYTES, save_image_sticker
 from yggdrasil.tools.errors import ToolError
 from yggdrasil.transcript.notes import blob_id
 
 ID = "stickers"
 DESCRIPTION = (
-    "查询或选用服务器已收集的表情包与自定义表情："
+    "查询、选用或录入服务器表情包与自定义表情："
     "（1）聊天里出现看不懂意思的 `[表情:xxx]` / `[表情包:xxx]` 且影响理解对方意图时，"
     "可加载它查表情的画面描述、情绪和用法；"
-    "（2）在轻松闲聊、玩梗、吐槽、祝贺等确实加分的场合，偶尔挑一张内联表情或动图/图片表情包配进回复或单独发图。"
-    "正经问答、不需要查表情含义也不需要配图时不要加载，不要每次回复都配表情包。"
+    "（2）在轻松闲聊、玩梗、吐槽、祝贺等确实加分的场合，偶尔挑一张内联表情或动图/图片表情包配进回复或单独发图；"
+    "（3）用户让你把对话里的某张图收进表情包库，或聊到非常有梗、值得收藏复用的表情图时，用 save_sticker 录入。"
+    "正经问答且无需查/配/收表情包时不要加载，不要每次回复都配表情包。"
 )
 INSTRUCTIONS = """\
-查询或选用已收集的表情包库：
+查询、选用或录入表情包库：
 - 查意思：聊天里遇到看不懂的 `[表情:名称]` 且有必要弄清含义时，
   用 search_stickers("名称") 查看该表情的画面描述、图中文字、情绪和常见用法（无需调 pick_sticker）。
 - 配进回复（保持克制，单次回复最多配 1 张，宁缺毋滥）：先用 search_stickers(query) 按情绪/场景搜候选，
   没搜到贴切的直接放弃；再调 pick_sticker(sticker_id)：
   - 本服自定义表情返回内联标记 `(emj)名称(emj)[id]`，直接写进回复正文即可（KMarkdown 和卡片正文都会直接显示）。
   - 图片/动图表情包返回句柄 `img#N`：放进回复某一节的 `images` 随文字一起发出；
-    如果想单独发一张表情图不配文字，把该节 `content` 留空、`images` 写 `["img#N"]` 并设 `style="text"`。"""
+    如果想单独发一张表情图不配文字，把该节 `content` 留空、`images` 写 `["img#N"]` 并设 `style="text"`。
+- 录入表情包：用 save_sticker(handle, description, usage, emotions, ocr_text) 把对话中的图片/动图收进表情包库。
+  - handle 支持 `img#N`、`file#N` 或聊天记录消息编号 `#N`（多张图用 `#N/2`）。
+  - 录入前若还没看过原图，先用 view_image 看清确认确实是适合复用的表情包/梗图
+    （不要录入普通截图、报错图或含隐私/违规内容的图）。
+  - 顺手填好 description（一句话描述画面）、usage（适用场景）和 emotions（1-4 个情绪词）会立即生效可供检索；
+    留空则交由后台视觉模型补全。"""
 
 _POOL_LIMIT = 200
 _QUERY_SPLIT = re.compile(r"[\s,，、/|]+")
@@ -54,6 +65,18 @@ class _StickerRow:
     seen_count: int
 
 
+def _origin_guild(emoji_id: str | None, guild_id: str | None) -> str | None:
+    return emoji_origin_guild(emoji_id) or guild_id or None
+
+
+def _is_same_guild_emoji(
+    kind: str, emoji_id: str | None, sticker_guild_id: str | None, target_guild_id: str | None
+) -> bool:
+    if kind != "emoji" or not emoji_id or not target_guild_id:
+        return False
+    return _origin_guild(emoji_id, sticker_guild_id) == target_guild_id
+
+
 async def _load_pool(guild_id: str | None) -> list[_StickerRow]:
     has_blob = exists().where(StickerBlob.sticker_id == Sticker.id)
     same_guild_emoji = (
@@ -69,7 +92,7 @@ async def _load_pool(guild_id: str | None) -> list[_StickerRow]:
         same_guild_emoji & (Sticker.summary != ""),
     )
     stmt = (
-        select(Sticker, StickerUsage.count)
+        select(Sticker, StickerUsage.count, has_blob)
         .outerjoin(
             StickerUsage,
             (StickerUsage.sticker_id == Sticker.id) & (StickerUsage.guild_id == (guild_id or "")),
@@ -80,27 +103,34 @@ async def _load_pool(guild_id: str | None) -> list[_StickerRow]:
     )
     async with get_session() as session:
         rows = (await session.execute(stmt)).all()
-    return [
-        _StickerRow(
-            id=s.id,
-            kind=s.kind,
-            guild_id=s.guild_id,
-            emoji_id=s.emoji_id,
-            summary=s.summary or "",
-            description=s.description or "",
-            usage=s.usage or "",
-            emotions=[str(e) for e in (s.emotions or ())],
-            ocr_text=s.ocr_text or "",
-            frames=s.frames,
-            uses=int(uses or 0),
-            seen_count=s.seen_count,
+    out: list[_StickerRow] = []
+    for s, uses, row_has_blob in rows:
+        same_guild = _is_same_guild_emoji(s.kind, s.emoji_id, s.guild_id, guild_id)
+        # Never expose stale foreign-guild emojis that lack a usable image blob (or aren't ready).
+        if not same_guild and (s.status != "ready" or not row_has_blob):
+            continue
+        out.append(
+            _StickerRow(
+                id=s.id,
+                kind=s.kind,
+                guild_id=_origin_guild(s.emoji_id, s.guild_id) if s.kind == "emoji" else s.guild_id,
+                emoji_id=s.emoji_id,
+                summary=s.summary or "",
+                description=s.description or "",
+                usage=s.usage or "",
+                emotions=[str(e) for e in (s.emotions or ())],
+                ocr_text=s.ocr_text or "",
+                frames=s.frames,
+                uses=int(uses or 0),
+                seen_count=s.seen_count,
+            )
         )
-        for s, uses in rows
-    ]
+    return out
 
 
 def _score(row: _StickerRow, terms: list[str], guild_id: str | None) -> tuple[int, int, int, int, int]:
-    same_guild = 1 if (guild_id and row.guild_id == guild_id) else 0
+    origin = _origin_guild(row.emoji_id, row.guild_id) if row.kind == "emoji" else row.guild_id
+    same_guild = 1 if (guild_id and origin == guild_id) else 0
     if not terms:
         return (0, 1, same_guild, row.uses, row.seen_count)
     summary_l = row.summary.strip().lower()
@@ -111,7 +141,7 @@ def _score(row: _StickerRow, terms: list[str], guild_id: str | None) -> tuple[in
 
 
 def _format_candidate(row: _StickerRow, guild_id: str | None) -> str:
-    if row.kind == "emoji" and row.emoji_id and guild_id and row.guild_id == guild_id:
+    if _is_same_guild_emoji(row.kind, row.emoji_id, row.guild_id, guild_id):
         tag = "本服内联表情"
     elif (row.frames or 0) > 1:
         tag = "动图表情包"
@@ -171,7 +201,7 @@ async def pick_sticker(ctx: RunContext[Deps], sticker_id: int) -> str:
     if sticker is None or not sticker.enabled:
         raise ToolError(f"找不到可用的表情包 #{sticker_id}")
 
-    if sticker.kind == "emoji" and sticker.emoji_id and ctx.deps.guild_id and sticker.guild_id == ctx.deps.guild_id:
+    if _is_same_guild_emoji(sticker.kind, sticker.emoji_id, sticker.guild_id, ctx.deps.guild_id):
         name = (sticker.summary or "emoji").replace("(", "").replace(")", "").strip() or "emoji"
         token = f"(emj){name}(emj)[{sticker.emoji_id}]"
         return f"已选本服自定义表情，直接把这段放进回复正文即可：{token}"
@@ -190,12 +220,54 @@ async def pick_sticker(ctx: RunContext[Deps], sticker_id: int) -> str:
     )
 
 
+@chat_tool("save_sticker")
+async def save_sticker(
+    ctx: RunContext[Deps],
+    handle: str,
+    description: str = "",
+    usage: str = "",
+    emotions: list[str] | None = None,
+    ocr_text: str = "",
+) -> str:
+    """把对话里的某张图片或动图录入表情包库。handle 是 img#N、file#N 或聊天记录消息编号 #N（多张图用 #N/2）。
+    建议顺手填好 description（一句话描述画面）、usage（群聊适用场景）和 emotions（1-4 个情绪标签），填全后立即生效。"""
+    if not ctx.deps.settings.features.sticker_collect:
+        raise ToolError("当前频道未开启表情包收集功能，无法录入")
+    h = await resolve_ref(ctx, handle, "image", "file")
+    blob, name = await media_bytes(h, MAX_BYTES, made=ctx.deps.made_images)
+    if needs_image_check(ctx.deps.settings):
+        verdict = await check_image(blob)
+        if verdict.model:
+            ctx.deps.vision_tokens.append((verdict.model, verdict.input_tokens, verdict.output_tokens))
+        if not verdict.safe:
+            reason = "审核未通过" if verdict.category != "error" else "审核出错"
+            raise ToolError(f"这张图{reason}（{verdict.category}），不能录入表情包库")
+    saved = await save_image_sticker(
+        blob,
+        guild_id=ctx.deps.guild_id,
+        name=name,
+        description=description,
+        usage=usage,
+        emotions=emotions,
+        ocr_text=ocr_text,
+    )
+    ctx.deps.actions.append(f"save_sticker:#{saved.sticker_id}")
+    kind_label = "动图表情包" if saved.frames > 1 else "图片表情包"
+    if saved.existed:
+        detail = f"（{saved.description[:40]}）" if saved.description else ""
+        return f"这张图已经在表情包库里了：#{saved.sticker_id} [{kind_label}]{detail}，无需重复录入。"
+    action = "已重新收录" if saved.restored else "已录入"
+    if saved.status == "ready":
+        return f"{action}表情包库：#{saved.sticker_id} [{kind_label}]（{saved.description[:40]}），现已可被检索和选用。"
+    return f"{action}表情包库：#{saved.sticker_id} [{kind_label}]，等待后台视觉打标完成后即可检索选用。"
+
+
 def _tool(fn: Callable[..., Awaitable[ToolResult]]) -> Tool[Deps]:
     return Tool(fn, takes_ctx=True)
 
 
 def capability() -> Capability[Deps]:
-    fns = (search_stickers, pick_sticker)
+    fns = (search_stickers, pick_sticker, save_sticker)
     return Capability[Deps](
         id=ID,
         description=DESCRIPTION,

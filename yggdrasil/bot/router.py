@@ -413,6 +413,12 @@ async def _catch_up(kook: LiveKook, connected_at: datetime) -> None:
         await events.sync_registered_guilds(kook)
     except Exception:
         LOGGER.exception("auto-syncing KOOK channels on connect failed")
+    try:
+        from yggdrasil.stickers.collect import repair_emoji_stickers
+
+        await repair_emoji_stickers(kook)
+    except Exception:
+        LOGGER.exception("repairing KOOK emoji sticker guild_ids on connect failed")
     snap = snapshot()
     for cid, ch in snap.channels.items():
         if not ch.is_category and not ch.is_forum and snap.channel_enabled(cid):

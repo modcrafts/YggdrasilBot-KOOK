@@ -21,6 +21,7 @@ from yggdrasil.kook.model import (
     Member,
     Message,
     ThreadCategory,
+    emoji_origin_guild,
 )
 from yggdrasil.kook.parser import (
     admin_roles_from_list,
@@ -71,6 +72,42 @@ class Kook(ABC):
 
     def invalidate_guild_emojis(self, guild_id: str) -> None:
         """Drop cached guild custom emojis so the next lookup refreshes from KOOK."""
+
+    def invalidate_joined_guilds(self) -> None:
+        """Drop cached list of guilds the bot has joined so the next lookup refreshes from KOOK."""
+
+    async def joined_guild_ids(self) -> frozenset[str]:
+        """IDs of all KOOK guilds the bot is currently a member of."""
+        return frozenset(g.guild_id for g in await self.guilds() if g.guild_id)
+
+    async def resolve_emoji(self, emoji_id: str, *, hint_guild_id: str | None = None) -> GuildEmoji | None:
+        """Return the ``GuildEmoji`` if ``emoji_id`` belongs to a guild the bot has joined, else ``None``.
+
+        Propagates :class:`KookError` on transient API failures so callers can distinguish an unreachable foreign
+        emoji (``None``) from a temporary lookup error.
+        """
+        joined = await self.joined_guild_ids()
+        checked: set[str] = set()
+        if hint_guild_id and hint_guild_id in joined:
+            checked.add(hint_guild_id)
+            for e in await self.guild_emojis(hint_guild_id):
+                if e.id == emoji_id:
+                    return e
+        origin_gid = emoji_origin_guild(emoji_id)
+        if origin_gid is not None:
+            if origin_gid not in joined or origin_gid in checked:
+                return None
+            for e in await self.guild_emojis(origin_gid):
+                if e.id == emoji_id:
+                    return e
+            return None
+        for gid in joined:
+            if gid in checked:
+                continue
+            for e in await self.guild_emojis(gid):
+                if e.id == emoji_id:
+                    return e
+        return None
 
     async def guild_members(
         self,
@@ -212,6 +249,8 @@ class LiveKook(Kook):
         self._guild_meta: dict[str, tuple[float, str, set[int], dict[int, GuildRole]]] = {}
         # guild_id -> (fetched_at, {emoji_id: GuildEmoji})
         self._emoji_cache: dict[str, tuple[float, dict[str, GuildEmoji]]] = {}
+        # (fetched_at, frozenset[guild_id])
+        self._joined_guilds: tuple[float, frozenset[str]] | None = None
 
     @property
     def self_id(self) -> str:
@@ -225,6 +264,17 @@ class LiveKook(Kook):
 
     def invalidate_guild_emojis(self, guild_id: str) -> None:
         self._emoji_cache.pop(guild_id, None)
+
+    def invalidate_joined_guilds(self) -> None:
+        self._joined_guilds = None
+
+    async def joined_guild_ids(self) -> frozenset[str]:
+        now = time.monotonic()
+        if self._joined_guilds is not None and now - self._joined_guilds[0] < _CACHE_TTL_S:
+            return self._joined_guilds[1]
+        ids = frozenset(g.guild_id for g in await self.guilds() if g.guild_id)
+        self._joined_guilds = (now, ids)
+        return ids
 
     @staticmethod
     def _parse_role(r: dict[str, Any]) -> GuildRole:

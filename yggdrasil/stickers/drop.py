@@ -263,6 +263,7 @@ async def _deliver(pick: dict[str, Any]) -> None:
     from yggdrasil.bot.state import identity
     from yggdrasil.delivery.send import send_image, send_kmarkdown
     from yggdrasil.kook import client as kook_client
+    from yggdrasil.kook.model import emoji_origin_guild
 
     channel_id, sticker_id = str(pick["channel_id"]), int(pick["sticker_id"])
     guild_id = str(pick.get("guild_id") or snapshot().guild_of(channel_id) or "")
@@ -279,7 +280,8 @@ async def _deliver(pick: dict[str, Any]) -> None:
         return
     ident = await identity(kook)
     # Same-guild KOOK custom emoji can be sent natively as KMarkdown!
-    if sticker.kind == "emoji" and sticker.emoji_id and sticker.guild_id == guild_id:
+    origin_gid = emoji_origin_guild(sticker.emoji_id) or sticker.guild_id
+    if sticker.kind == "emoji" and sticker.emoji_id and origin_gid == guild_id:
         name = sticker.summary or "emoji"
         await send_kmarkdown(
             kook,
