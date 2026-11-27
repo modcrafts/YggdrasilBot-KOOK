@@ -6,12 +6,14 @@ from tests.support.kook import FakeKook
 from yggdrasil.agent.schema import BotReply, Section, SourceRef
 from yggdrasil.delivery.render import (
     UploadedPicture,
+    _sanitize_invisible_modules,
     build_card_batches,
     choose_format,
     split_kmarkdown,
     to_kmarkdown,
 )
 from yggdrasil.delivery.send import send_reply
+from yggdrasil.kook.model import KookError
 from yggdrasil.settings import InteractionSettings
 
 
@@ -126,3 +128,60 @@ async def test_send_reply_quotes_trigger_message(recorded):
         nickname="Ygg",
     )
     assert kook.sent[1].quote is None
+
+
+async def test_invisible_card_sanitizes_modules_and_falls_back_to_primary_on_40000(recorded):
+    cfg = InteractionSettings(reply_style="invisible")
+    short = BotReply(mode="reply", sections=[Section(content="无边框卡片内容")])
+    assert choose_format(short, cfg, picture_count=0) == "card"
+
+    sanitized = _sanitize_invisible_modules(
+        [
+            {"type": "header", "text": {"type": "plain-text", "content": "标题"}},
+            {
+                "type": "section",
+                "text": {"type": "kmarkdown", "content": "正文"},
+                "mode": "right",
+                "accessory": {"type": "button"},
+            },
+            {"type": "file", "src": "https://img.kookapp.cn/a.pdf"},
+            {"type": "countdown", "mode": "second"},
+            {"type": "divider"},
+            {"type": "context", "elements": [{"type": "plain-text", "content": "meta"}]},
+        ]
+    )
+    assert [m["type"] for m in sanitized] == ["header", "section", "divider", "context"]
+    assert "accessory" not in sanitized[1]
+    assert "mode" not in sanitized[1]
+
+    batches = build_card_batches(short, "gpt-5 · 0.5s", cfg, theme="invisible")
+    assert batches[0][0]["theme"] == "invisible"
+
+    # Simulate KOOK rejecting invisible card with code=40000 -> automatic fallback to primary card
+    class RejectInvisibleKook(FakeKook):
+        async def send_card(self, *, channel_id, user_id, card_json, quote=None, chat_code=None) -> str:
+            parsed = json.loads(card_json)
+            if parsed[0]["theme"] == "invisible":
+                raise KookError("invalid card", code=40000)
+            return await super().send_card(
+                channel_id=channel_id, user_id=user_id, card_json=card_json, quote=quote, chat_code=chat_code
+            )
+
+    kook = RejectInvisibleKook()
+    mid = await send_reply(
+        kook,
+        channel_id="ch-1",
+        guild_id="g-1",
+        user_id="u-1",
+        reply_to="trig-1",
+        reply=short,
+        meta_text="gpt-5 · 0.5s",
+        cfg=cfg,
+        self_id="bot-1",
+        nickname="Ygg",
+        theme="invisible",
+    )
+    assert mid == "msg-1"
+    assert len(kook.sent) == 1
+    assert json.loads(kook.sent[0].content)[0]["theme"] == "primary"
+    assert len(recorded) == 1

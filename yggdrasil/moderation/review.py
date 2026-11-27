@@ -150,6 +150,7 @@ async def decide(review_id: int, action: str, actor: str, edited_text: str | Non
                     self_id=ident.self_id,
                     nickname=ident.nickname,
                     channel_map=channel_map,
+                    theme="primary" if settings.interaction.reply_style == "card" else "invisible",
                 )
         item.status = {"approve": "approved", "reject": "rejected", "edit": "approved"}[action]
         item.decided_by = actor

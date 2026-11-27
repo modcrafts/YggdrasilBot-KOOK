@@ -12,6 +12,7 @@ from yggdrasil.delivery.render import UploadedPicture, render_reply
 from yggdrasil.ingest.writer import WRITER, IncomingMessage
 from yggdrasil.kook import segments as seg
 from yggdrasil.kook.client import Kook
+from yggdrasil.kook.model import KookError
 from yggdrasil.kook.segments import Segment
 from yggdrasil.settings import InteractionSettings
 from yggdrasil.transcript.notes import Blob, blob_id
@@ -217,9 +218,24 @@ async def send_reply(
     for idx, batch in enumerate(plan.card_batches):
         quote = reply_to if idx == 0 else None
         card_json = json.dumps(batch, ensure_ascii=False)
-        mid = await kook.send_card(
-            channel_id=channel_id, user_id=user_id, card_json=card_json, quote=quote, chat_code=chat_code
-        )
+        try:
+            mid = await kook.send_card(
+                channel_id=channel_id, user_id=user_id, card_json=card_json, quote=quote, chat_code=chat_code
+            )
+        except KookError as e:
+            # If KOOK rejects an invisible card due to module restrictions (e.g. code 40000), fall back to primary card.
+            if theme == "invisible" and e.code == 40000:
+                LOGGER.warning("KOOK rejected invisible card ({}); retrying as primary card", e)
+                fallback_batch = [{**card, "theme": "primary"} for card in batch]
+                mid = await kook.send_card(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    card_json=json.dumps(fallback_batch, ensure_ascii=False),
+                    quote=quote,
+                    chat_code=chat_code,
+                )
+            else:
+                raise
         if first_card_id is None:
             first_card_id = mid
         if channel_id is not None:

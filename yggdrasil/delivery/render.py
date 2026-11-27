@@ -136,6 +136,27 @@ def split_kmarkdown(text: str, limit: int) -> list[str]:
     return [c for c in chunks if c]
 
 
+# Modules accepted inside KOOK's ``theme="invisible"`` borderless card (no file/audio/video/countdown/invite/accessory).
+_INVISIBLE_ALLOWED_MODULES = frozenset(
+    {"header", "section", "divider", "context", "action-group", "container", "image-group"}
+)
+
+
+def _sanitize_invisible_modules(modules: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure every module complies with KOOK's ``invisible`` card restrictions."""
+    out: list[dict[str, Any]] = []
+    for mod in modules:
+        mt = mod.get("type")
+        if mt not in _INVISIBLE_ALLOWED_MODULES:
+            continue
+        if mt == "section" and "accessory" in mod:
+            cleaned = {k: v for k, v in mod.items() if k not in ("accessory", "mode")}
+            out.append(cleaned)
+        else:
+            out.append(mod)
+    return out
+
+
 def choose_format(
     reply: BotReply,
     cfg: InteractionSettings,
@@ -144,7 +165,7 @@ def choose_format(
     force_card: bool = False,
 ) -> Literal["kmarkdown", "card"]:
     """Pick the most human-readable KOOK output format for ``reply``."""
-    if cfg.reply_style == "card":
+    if cfg.reply_style in ("card", "invisible"):
         return "card"
     if cfg.reply_style == "kmarkdown":
         return "kmarkdown"
@@ -182,6 +203,8 @@ def _sources_kmarkdown(reply: BotReply) -> str:
 
 def _pack_card_batches(modules: list[dict[str, Any]], *, theme: str = "primary") -> tuple[list[dict[str, Any]], ...]:
     """Pack ``modules`` into one or more KOOK CardMessage payloads respecting module and byte limits."""
+    if theme == "invisible":
+        modules = _sanitize_invisible_modules(modules)
     if not modules:
         return ()
     batches: list[list[dict[str, Any]]] = []

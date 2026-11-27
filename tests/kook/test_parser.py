@@ -3,6 +3,7 @@
 import json
 
 from yggdrasil.kook.parser import (
+    parse_card_or_kmarkdown,
     parse_forum_post,
     parse_forum_thread,
     parse_incoming,
@@ -335,3 +336,30 @@ def test_parse_forum_thread_and_nested_posts():
     assert len(post.replies) == 1
     assert post.replies[0].content_text == "赞！"
     assert post.replies[0].belong_to_post_id == "p-10"
+
+
+def test_parse_card_or_kmarkdown_extracts_invisible_card_edits_without_json_leak():
+    invisible_card = json.dumps(
+        [
+            {
+                "type": "card",
+                "theme": "invisible",
+                "size": "lg",
+                "modules": [
+                    {"type": "section", "text": {"type": "kmarkdown", "content": "编辑后的无边框正文"}},
+                    {"type": "countdown", "mode": "second", "endTime": 1_700_000_000_000},
+                    {"type": "invite", "code": "abc123"},
+                ],
+            }
+        ]
+    )
+    segs = parse_card_or_kmarkdown(invisible_card)
+    assert segs[0]["type"] == "card"
+    plain = segs[0]["data"]["plain_text"]
+    assert "编辑后的无边框正文" in plain
+    assert "[倒计时]" in plain
+    assert "[邀请:abc123]" in plain
+    assert '"theme"' not in plain
+
+    kmd_segs = parse_card_or_kmarkdown("普通编辑消息")
+    assert kmd_segs == [{"type": "text", "data": {"text": "普通编辑消息"}}]

@@ -129,10 +129,11 @@ class InteractionSettings(BaseModel):
     ratelimited_emoji: str = Field(default="🚦", description="被限流或排队超时时贴的表情")
 
     # Adaptive KOOK reply formatting.
-    reply_style: Literal["auto", "card", "kmarkdown"] = Field(
+    reply_style: Literal["auto", "card", "invisible", "kmarkdown"] = Field(
         default="auto",
-        description="输出样式：auto 自适应（短回复用简洁 KMarkdown，长文/多节/带图/带来源/TL;DR 用卡片消息）；"
-        "card 始终卡片；kmarkdown 尽量用 KMarkdown",
+        description="输出样式：auto 自适应（短回复用简洁 KMarkdown，普通对话长文/多节/带图升级为无边框 invisible 卡片，"
+        "TL;DR/报告用标准有框卡片）；card 始终标准有框卡片；invisible 始终无边框卡片（TL;DR 仍用标准卡片）；"
+        "kmarkdown 尽量用 KMarkdown",
     )
     adaptive_card_chars: int = Field(
         default=350,

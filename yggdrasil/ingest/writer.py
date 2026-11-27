@@ -183,11 +183,15 @@ class IngestWriter:
     async def update_message_content(
         self, channel_id: str, kook_message_id: str, content: str, *, guild_id: str = ""
     ) -> None:
-        """Update stored text & segments when KOOK pushes an ``updated_message`` edit event."""
-        from yggdrasil.kook.parser import parse_kmarkdown
+        """Update stored text & segments when KOOK pushes an ``updated_message`` edit event.
+
+        Handles both KMarkdown edits and CardMessage (including ``invisible`` card) edits so raw Card JSON
+        never leaks into ``plain_text``.
+        """
+        from yggdrasil.kook.parser import parse_card_or_kmarkdown
 
         await self.flush()
-        segs = strip_nul(parse_kmarkdown(content, guild_id=guild_id))
+        segs = strip_nul(parse_card_or_kmarkdown(content, guild_id=guild_id))
         norm = normalize(segs)
         async with get_session() as session:
             result = await session.execute(

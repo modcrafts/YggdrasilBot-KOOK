@@ -93,7 +93,10 @@ def normalize(segments: list[dict[str, Any]], mention: Callable[[str], str] | No
             case "card":
                 plain = str(data.get("plain_text") or "").strip()
                 parts.append(plain if plain else "[卡片]")
-                out.attachments.append(Attachment("card", data))
+                # Only register a card#N handle when the card carries an explicit target URL;
+                # otherwise its plain_text is already expanded inline above.
+                if data.get("url"):
+                    out.attachments.append(Attachment("card", data))
             case _:
                 parts.append(f"[{kind}]")
     out.text = "".join(parts).strip()

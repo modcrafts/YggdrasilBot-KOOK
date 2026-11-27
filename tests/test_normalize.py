@@ -41,6 +41,8 @@ def test_every_kook_segment_type_reads_as_placeholder_text():
     assert norm.reply_to == "orig-uuid"
     assert norm.mentions == ["u-1"]
     assert "https://a.b" in norm.urls
+    # Card without explicit url does not pollute attachments with a redundant card#N handle
+    assert all(a.kind != "card" for a in norm.attachments)
 
 
 def test_a_mention_renders_through_the_callback_and_owns_its_space():

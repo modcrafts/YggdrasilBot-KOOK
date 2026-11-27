@@ -229,7 +229,20 @@ def _extract_card(raw_content: str) -> tuple[list[dict[str, Any]], str, list[Seg
                         "data": {"url": str(mod["src"]), "name": str(mod.get("title") or ""), "duration": 0},
                     }
                 )
+            elif mt == "countdown":
+                texts.append("[倒计时]")
+            elif mt == "invite" and mod.get("code"):
+                texts.append(f"[邀请:{mod['code']}]")
     return all_modules, "\n".join(t.strip() for t in texts if t.strip()), attachments
+
+
+def parse_card_or_kmarkdown(content: str, *, guild_id: str = "") -> list[Segment]:
+    """Parse ``content`` as a KOOK CardMessage (including ``invisible`` cards) when valid JSON, else KMarkdown."""
+    if content.lstrip().startswith("["):
+        modules, plain, card_atts = _extract_card(content)
+        if modules:
+            return [seg.card(modules, plain), *card_atts]
+    return parse_kmarkdown(content, guild_id=guild_id)
 
 
 def parse_kmarkdown(

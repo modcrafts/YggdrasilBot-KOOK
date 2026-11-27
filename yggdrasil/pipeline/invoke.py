@@ -725,6 +725,8 @@ class Invocator:
             else None
         )
         meta_text = self.meta.render(list(cfg.metadata_fields)) if cfg.metadata_node else None
+        is_structured_report = self.record_handler in ("tldr", "report")
+        card_theme = "primary" if (is_structured_report or cfg.reply_style == "card") else "invisible"
         self.reply_msg_id = await send_reply(
             self.kook,
             channel_id=self.channel_id,
@@ -739,7 +741,8 @@ class Invocator:
             images=images,
             attached=deps.images if deps is not None else (),
             channel_map=self._channel_map(),
-            force_card=self.record_handler in ("tldr", "report"),
+            force_card=is_structured_report,
+            theme=card_theme,
             chat_code=self.chat_code,
         )
         # If triggered by another KOOK bot, refresh cooldown from reply completion so slow long replies cannot loop.
