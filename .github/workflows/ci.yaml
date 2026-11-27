@@ -1,12 +1,11 @@
 name: CI
 
-# Releases are git tags, one namespace per image (one commit may carry several):
-#   vX.Y.Z          bot           -> ghcr.io/fywinds/yggdrasil-bot:vX.Y.Z
-#   sandbox-vX.Y.Z  sandbox image -> ghcr.io/fywinds/yggdrasil-sandbox:vX.Y.Z
-#   render-vX.Y.Z   render image  -> ghcr.io/fywinds/yggdrasil-render:vX.Y.Z
-#   browser-vX.Y.Z  browser image -> ghcr.io/fywinds/yggdrasil-browser:vX.Y.Z
-# Each image is versioned on its own; argocd-image-updater follows each image's newest vX.Y.Z. Pushes to main build
-# only the bot (sha-* / main tags for manual pins).
+# Images published to GHCR (ghcr.io/<owner>/yggdrasil-*):
+#   - Push to main: always builds bot (:main, :latest, :sha-*), and automatically rebuilds
+#     sandbox / render / browser (:latest) whenever their own source paths change.
+#   - Release tags (vX.Y.Z, sandbox-vX.Y.Z, render-vX.Y.Z, browser-vX.Y.Z): builds the
+#     corresponding image with both :vX.Y.Z and :latest.
+#   - Manual workflow_dispatch: selectable per-image checkboxes (default: all four).
 on:
   push:
     branches: [main]
@@ -14,6 +13,23 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      bot:
+        description: "Build and push bot image"
+        type: boolean
+        default: true
+      sandbox:
+        description: "Build and push sandbox image"
+        type: boolean
+        default: true
+      render:
+        description: "Build and push render image"
+        type: boolean
+        default: true
+      browser:
+        description: "Build and push browser image"
+        type: boolean
+        default: true
 
 env:
   REGISTRY: ghcr.io
@@ -75,10 +91,72 @@ jobs:
           git diff --exit-code src/client
       - run: npm run build
 
+  # Decide which container images to build & publish for this event (runs on pushes and manual runs, not PRs).
+  changes:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      bot: ${{ steps.detect.outputs.bot }}
+      sandbox: ${{ steps.detect.outputs.sandbox }}
+      render: ${{ steps.detect.outputs.render }}
+      browser: ${{ steps.detect.outputs.browser }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        with:
+          fetch-depth: 0
+      - name: Detect images to build
+        id: detect
+        shell: bash
+        run: |
+          bot=false
+          sandbox=false
+          render=false
+          browser=false
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            bot="${{ inputs.bot }}"
+            sandbox="${{ inputs.sandbox }}"
+            render="${{ inputs.render }}"
+            browser="${{ inputs.browser }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            case "${{ github.ref_name }}" in
+              v*) bot=true ;;
+              sandbox-v*) sandbox=true ;;
+              render-v*) render=true ;;
+              browser-v*) browser=true ;;
+            esac
+          else
+            bot=true
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              changed="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+            else
+              changed="$(git diff --name-only "$before" "${{ github.sha }}")"
+            fi
+            echo "Changed files:"
+            printf '%s\n' "$changed"
+            if printf '%s\n' "$changed" | grep -Eq '^sandbox/'; then
+              sandbox=true
+            fi
+            if printf '%s\n' "$changed" | grep -Eq '^render/'; then
+              render=true
+            fi
+            if printf '%s\n' "$changed" | grep -Eq '^(browser/|yggdrasil/browser/|yggdrasil/tools/(ssrf|errors)\.py$)'; then
+              browser=true
+            fi
+          fi
+
+          {
+            echo "bot=$bot"
+            echo "sandbox=$sandbox"
+            echo "render=$render"
+            echo "browser=$browser"
+          } >> "$GITHUB_OUTPUT"
+
   bot:
-    needs: [check, web]
-    # Branch pushes, manual runs and vX.Y.Z tags; not the sandbox-/render-/browser- release tags.
-    if: github.event_name != 'pull_request' && (github.ref_type != 'tag' || startsWith(github.ref_name, 'v'))
+    needs: [check, web, changes]
+    if: needs.changes.outputs.bot == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -114,12 +192,11 @@ jobs:
           cache-from: type=gha,scope=bot
           cache-to: type=gha,mode=max,scope=bot
 
-  # Sandbox workspace image (sandbox/), only on sandbox-vX.Y.Z tags. The tests that need a real sandboxd (in-sandbox
-  # helpers, backend conformance) run here against this commit's image instead of on every push: the image only
-  # changes with these tags, and the bot-side sandbox tests use an in-memory sandboxd.
+  # Sandbox workspace image (sandbox/): builds on sandbox/ changes to main, sandbox-vX.Y.Z tags, or manual runs.
+  # The tests that need a real sandboxd (in-sandbox helpers, backend conformance) run here against this commit's image.
   sandbox:
-    needs: check
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/sandbox-v')
+    needs: [check, changes]
+    if: needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -179,10 +256,10 @@ jobs:
           cache-from: type=gha,scope=sandbox
           cache-to: type=gha,mode=max,scope=sandbox
 
-  # Render service image (render/: Markdown/Mermaid/HTML to PNG for the render_* tools), on render-vX.Y.Z tags or manual runs.
+  # Render service image (render/): builds on render/ changes to main, render-vX.Y.Z tags, or manual runs.
   render:
-    needs: check
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/render-v'))
+    needs: [check, changes]
+    if: needs.changes.outputs.render == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -214,11 +291,11 @@ jobs:
           cache-from: type=gha,scope=render
           cache-to: type=gha,mode=max,scope=render
 
-  # Browser service image (browser/Dockerfile: real Chrome for read_url's browser tier), on browser-vX.Y.Z tags or
-  # manual runs. Built from the repository root: it copies yggdrasil/browser and the SSRF guard.
+  # Browser service image (browser/): builds on browser/ or yggdrasil/browser/ changes to main, browser-vX.Y.Z tags,
+  # or manual runs. Built from the repository root: it copies yggdrasil/browser and the SSRF guard.
   browser:
-    needs: check
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/browser-v'))
+    needs: [check, changes]
+    if: needs.changes.outputs.browser == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
