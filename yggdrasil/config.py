@@ -89,6 +89,8 @@ class AppConfig(BaseSettings):
     # Render service for the render_* tools; unset disables them.
     render_url: str | None = Field(default=None, alias="YGG_RENDER_URL")
     web_dist: str = Field(default="web/dist", alias="YGG_WEB_DIST")
+    # Optional OpenAI API key fallback for OpenAI-only endpoints such as /v1/content_provenance_checks.
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     # Extra headers for outbound LLM calls; Cloudflare in front of new-api rejects default SDK user agents.
     llm_user_agent: str = Field(default="yggdrasil-bot/0.1", alias="YGG_LLM_USER_AGENT")
     # Dashboard links invocations to their Tempo trace in this Grafana (no links when unset).

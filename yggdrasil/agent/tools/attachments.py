@@ -51,6 +51,35 @@ async def view_image(ctx: RunContext[Deps], handle: str, question: str = "") -> 
     return await _show_image(ctx, handle, h, img, question)
 
 
+@chat_tool("check_provenance")
+async def check_provenance(ctx: RunContext[Deps], handle: str) -> str:
+    """用 OpenAI Content Provenance API（/v1/content_provenance_checks）检测图片、音频或 PDF 是否包含
+    OpenAI 溯源信号（C2PA 内容凭证、SynthID 水印）。handle 是 img#N、file#N，或聊天记录里的消息编号 #N
+    （多张时用 #N/2）。会直接上传原始文件字节，不做重压缩。"""
+    from yggdrasil.tools.provenance import (
+        PROVENANCE_MAX_BYTES,
+        ProvenanceError,
+        check_content_provenance,
+        format_provenance_report,
+    )
+
+    h = await resolve_ref(ctx, handle, "image", "file")
+    deps, cfg = ctx.deps, ctx.deps.settings.tools
+    max_bytes = min(cfg.file_max_mb * 1024 * 1024, PROVENANCE_MAX_BYTES)
+    blob, name = await media_bytes(h, max_bytes, made=deps.made_images)
+    mime = media_type(blob) if is_image(blob) else ""
+    try:
+        report = await check_content_provenance(
+            blob,
+            name or "file.bin",
+            mime=mime,
+            provider_ref=cfg.provenance_provider,
+        )
+    except ProvenanceError as e:
+        raise ToolError(str(e)) from e
+    return format_provenance_report(report, filename=name)
+
+
 def _hands_images(deps: Deps) -> bool:
     return not deps.text_only and sees_images(deps.task)
 

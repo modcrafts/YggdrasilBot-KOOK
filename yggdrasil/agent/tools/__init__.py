@@ -19,6 +19,7 @@ ALL_TOOLS: dict[str, Callable[..., Awaitable[ToolResult]]] = {
     "search_x": web.search_x,
     "read_file": attachments.read_file,
     "view_image": attachments.view_image,
+    "check_provenance": attachments.check_provenance,
     "search_history": history.search_history,
     "get_messages_around": history.get_messages_around,
     "recent_chat": history.recent_chat,
@@ -33,7 +34,7 @@ ALL_TOOLS: dict[str, Callable[..., Awaitable[ToolResult]]] = {
 SANDBOX = "sandbox"
 _HANDLER_EXCLUDED: dict[str, frozenset[str]] = {
     "chat": frozenset(),
-    "tldr": frozenset({"get_profile", "generate_image", SANDBOX}),
+    "tldr": frozenset({"get_profile", "generate_image", "check_provenance", SANDBOX}),
 }
 
 

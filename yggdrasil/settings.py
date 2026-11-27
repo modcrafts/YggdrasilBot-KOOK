@@ -19,6 +19,7 @@ ToolName = Literal[
     "search_x",
     "read_file",
     "view_image",
+    "check_provenance",
     "search_history",
     "get_messages_around",
     "recent_chat",
@@ -272,6 +273,7 @@ class ToolSettings(BaseModel):
             "search_x",
             "read_file",
             "view_image",
+            "check_provenance",
             "search_history",
             "get_messages_around",
             "recent_chat",
@@ -300,6 +302,7 @@ class ToolSettings(BaseModel):
             "search_x",
             "read_file",
             "view_image",
+            "check_provenance",
             "render_mermaid",
             "render_markdown",
             "render_html",
@@ -320,6 +323,11 @@ class ToolSettings(BaseModel):
     )
     file_max_mb: int = 30
     file_max_pages: int = 40
+    provenance_provider: str = Field(
+        default="",
+        description="OpenAI Content Provenance 检测（check_provenance）使用的提供商名称或 ID；"
+        "留空时自动匹配控制台里指向 api.openai.com 的提供商，或回退到环境变量 OPENAI_API_KEY",
+    )
     search_results: int = 6
     history_top_k: int = 12
     request_limit: int = 12
