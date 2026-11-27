@@ -26,8 +26,9 @@ from yggdrasil.crypto import decrypt, encrypt, mask
 from yggdrasil.db.models import EmbedSpace, Provider, SearchProvider, SettingsDoc, TaskRoute
 from yggdrasil.db.session import get_session
 from yggdrasil.llm.catalog import ModelCaps
+from yggdrasil.ops.tools import _KOOK_NEVER, OPS_TOOL_SPECS, OpsToolCategory
 from yggdrasil.runtime import SKILLS_CONFIG_KEY, TOOL_SECRETS_KEY, ProviderInfo, ToolSecretInfo
-from yggdrasil.settings import Settings, ToolName, merge_settings
+from yggdrasil.settings import OpsRoleRule, OpsToolName, Settings, ToolName, ToolSettings, merge_settings
 from yggdrasil.tools.provenance import (
     OPENAI_DEFAULT_BASE,
     PROVENANCE_MAX_BYTES,
@@ -43,6 +44,7 @@ router = APIRouter(tags=["tools"])
 ToolCategory = Literal["web", "media", "memory", "render", "sandbox"]
 ToolStatus = Literal["ready", "warning", "unconfigured", "disabled"]
 SkillHandler = Literal["chat", "tldr"]
+ParamValueType = Literal["integer", "number", "boolean", "string", "enum"]
 
 _SKILL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 
@@ -50,6 +52,53 @@ _SKILL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 _PROBE_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 )
+
+# Optional UI polish for ToolSettings fields: key -> (label, unit, group).
+# Any new ToolSettings field NOT listed here still renders automatically from its Pydantic schema.
+_PARAM_UI_META: dict[str, tuple[str, str, str]] = {
+    "read_url_max_chars": ("单页最大字符数", "字", ""),
+    "browser_fallback": ("浏览器渲染回退", "", ""),
+    "remote_fetch": ("DeepSeek 远程抓取兜底", "", ""),
+    "search_results": ("默认返回结果数", "条", ""),
+    "search_x_default_hours": ("默认回溯时间", "小时", ""),
+    "provenance_provider": ("指定提供商", "", ""),
+    "provenance_timeout_s": ("请求超时时间", "秒", ""),
+    "provenance_max_mb": ("单文件上传上限", "MB", ""),
+    "file_max_mb": ("附件下载上限", "MB", ""),
+    "file_max_pages": ("PDF 最大解析页数", "页", ""),
+    "file_max_chars": ("提取正文最大字符数", "字", ""),
+    "history_top_k": ("检索返回条数", "条", ""),
+    "messages_around_max": ("单侧最大拉取条数", "条", ""),
+    "glossary_list_max": ("词条总览返回上限", "条", ""),
+    "render_max_source_chars": ("源码最大字符数", "字", ""),
+    "render_timeout_s": ("渲染超时时间", "秒", ""),
+    "render_markdown_max_pages": ("单次最多渲染页数", "页", ""),
+    "generate_image_max_references": ("参考图最大张数", "张", ""),
+    "kook_upload_max_mb": ("upload_file 上传上限", "MB", ""),
+    "kook_pinned_shown": ("置顶消息展示条数", "条", ""),
+    "kook_thread_body_chars": ("帖子主楼正文截断长度", "字", ""),
+    "stickers_pool_limit": ("表情包候选池上限", "张", ""),
+    "sandbox_enabled": ("工作区全局总开关", "", "基础与命令"),
+    "sandbox_command_timeout_s": ("单次命令默认超时", "秒", "基础与命令"),
+    "sandbox_command_max_s": ("单次命令最长超时", "秒", "基础与命令"),
+    "sandbox_invocation_s": ("单次请求累计执行上限", "秒", "基础与命令"),
+    "sandbox_max_commands": ("单次请求最大命令次数", "次", "基础与命令"),
+    "sandbox_idle_min": ("闲置回收时间", "分钟", "生命周期与配额"),
+    "sandbox_max_age_min": ("最长存活时间", "分钟", "生命周期与配额"),
+    "sandbox_max_workspaces": ("全局工作区总数上限", "个", "生命周期与配额"),
+    "sandbox_max_workspaces_per_channel": ("单频道工作区上限", "个", "生命周期与配额"),
+    "sandbox_max_links": ("单工作区公开链接上限", "个", "生命周期与配额"),
+    "sandbox_request_limit": ("有工作区时模型请求上限", "次", "预算与桥接"),
+    "sandbox_tool_calls_limit": ("有工作区时工具调用上限", "次", "预算与桥接"),
+    "bridge_run_limit": ("单次对话工具桥接上限", "次", "预算与桥接"),
+    "bridge_job_limit": ("后台任务工具桥接上限", "次", "预算与桥接"),
+    "sandbox_max_jobs": ("每频道并发后台任务上限", "个", "后台任务"),
+    "sandbox_job_command_min": ("后台命令最长运行时间", "分钟", "后台任务"),
+    "sandbox_delegate": ("启用后台大任务（delegate）", "", "后台任务"),
+    "sandbox_job_agent_min": ("后台大任务最长运行时间", "分钟", "后台任务"),
+    "sandbox_job_max_input_tokens": ("后台大任务输入 Token 上限", "", "后台任务"),
+    "sandbox_job_max_output_tokens": ("后台大任务输出 Token 上限", "", "后台任务"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +110,9 @@ class ToolSpec:
     handlers: tuple[str, ...]
     param_keys: tuple[str, ...] = ()
     supports_secret: bool = False
+    secret_default_base_url: str = ""
+    secret_hint: str = ""
+    provider_param_key: str | None = None
     related_route: str | None = None
     related_label: str | None = None
 
@@ -146,6 +198,9 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handlers=("chat",),
         param_keys=("provenance_provider", "provenance_timeout_s", "provenance_max_mb"),
         supports_secret=True,
+        secret_default_base_url=OPENAI_DEFAULT_BASE,
+        secret_hint="留空默认使用 https://api.openai.com/v1；如使用代理请填完整 https:// 地址。",
+        provider_param_key="provenance_provider",
         related_route="/providers",
         related_label="Providers",
     ),
@@ -312,6 +367,19 @@ class ToolSecretIn(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
+class ToolParamFieldOut(BaseModel):
+    key: str
+    label: str
+    type: ParamValueType
+    description: str = ""
+    default: Any = None
+    minimum: float | None = None
+    maximum: float | None = None
+    options: list[str] = Field(default_factory=list)
+    unit: str = ""
+    group: str = ""
+
+
 class ToolItemOut(BaseModel):
     id: ToolName
     name: str
@@ -327,7 +395,11 @@ class ToolItemOut(BaseModel):
     related_label: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     defaults: dict[str, Any] = Field(default_factory=dict)
+    param_fields: list[ToolParamFieldOut] = Field(default_factory=list)
     supports_secret: bool = False
+    secret_default_base_url: str = ""
+    secret_hint: str = ""
+    provider_param_key: str | None = None
     secret: ToolSecretOut | None = None
 
 
@@ -383,6 +455,7 @@ class BuiltinSkillOut(BaseModel):
     enabled: bool
     params: dict[str, Any] = Field(default_factory=dict)
     defaults: dict[str, Any] = Field(default_factory=dict)
+    param_fields: list[ToolParamFieldOut] = Field(default_factory=list)
     extra_instructions: str = ""
 
 
@@ -424,7 +497,81 @@ class SkillsOverviewOut(BaseModel):
     custom: list[CustomSkillOut]
 
 
+class OpsToolOut(BaseModel):
+    id: OpsToolName
+    name: str
+    category: OpsToolCategory
+    write: bool
+    global_only: bool
+    description: str
+
+
+class OpsToolsOverviewOut(BaseModel):
+    tools: list[OpsToolOut]
+    kook_write_actions: list[str]
+    never_allowed: list[str]
+    role_rules: dict[str, OpsRoleRule]
+
+
+class OpsToolsConfigIn(BaseModel):
+    kook_write_actions: list[str] | None = None
+    role_rules: dict[str, OpsRoleRule] | None = None
+
+
 # --- Helpers --------------------------------------------------------------------------
+
+
+def _param_fields(param_keys: tuple[str, ...], *, exclude: set[str] | None = None) -> list[ToolParamFieldOut]:
+    """Build UI field descriptors directly from ``ToolSettings`` JSON schema so new backend params auto-render."""
+    schema_props = ToolSettings.model_json_schema().get("properties", {})
+    out: list[ToolParamFieldOut] = []
+    skip = exclude or set()
+    for key in param_keys:
+        if key in skip:
+            continue
+        prop = schema_props.get(key)
+        if not isinstance(prop, dict):
+            continue
+        if isinstance(prop.get("anyOf"), list):
+            non_null = [v for v in prop["anyOf"] if isinstance(v, dict) and v.get("type") != "null"]
+            if len(non_null) == 1:
+                resolved = {**non_null[0], **{k: v for k, v in prop.items() if k != "anyOf"}}
+            else:
+                resolved = prop
+        else:
+            resolved = prop
+
+        options = [str(x) for x in resolved["enum"]] if isinstance(resolved.get("enum"), list) else []
+        raw_type = resolved.get("type")
+        if options:
+            ftype: ParamValueType = "enum"
+        elif raw_type == "boolean":
+            ftype = "boolean"
+        elif raw_type == "integer":
+            ftype = "integer"
+        elif raw_type == "number":
+            ftype = "number"
+        else:
+            ftype = "string"
+
+        label, unit, group = _PARAM_UI_META.get(key, (key, "", ""))
+        minimum = resolved.get("minimum")
+        maximum = resolved.get("maximum")
+        out.append(
+            ToolParamFieldOut(
+                key=key,
+                label=label,
+                type=ftype,
+                description=str(resolved.get("description") or ""),
+                default=resolved.get("default"),
+                minimum=float(minimum) if isinstance(minimum, int | float) else None,
+                maximum=float(maximum) if isinstance(maximum, int | float) else None,
+                options=options,
+                unit=unit,
+                group=group,
+            )
+        )
+    return out
 
 
 def _sparse_diff(value: Any, base: Any) -> Any:
@@ -683,6 +830,13 @@ def _diagnose_tool(
             notes.append("delegate 需 YGG_RELAY_URL + agent 路由")
         return "ready", "工作区就绪", "；".join(notes)
 
+    if spec.supports_secret:
+        sec = _secret_info(secret_raw)
+        if sec.enabled and sec.api_key:
+            base = sec.base_url or spec.secret_default_base_url or "默认地址"
+            return "ready", "独立凭据已配置", f"使用独立加密凭据（{base}）"
+        return "unconfigured", "未配置凭据", "请在工具配置中启用并填写独立 API Key"
+
     return "ready", "已就绪", ""
 
 
@@ -736,7 +890,14 @@ async def _load_tools_overview() -> ToolsOverviewOut:
                 related_label=spec.related_label,
                 params={k: eff_tools[k] for k in spec.param_keys},
                 defaults={k: def_tools[k] for k in spec.param_keys},
+                param_fields=_param_fields(
+                    spec.param_keys,
+                    exclude={spec.provider_param_key} if spec.provider_param_key else None,
+                ),
                 supports_secret=spec.supports_secret,
+                secret_default_base_url=spec.secret_default_base_url,
+                secret_hint=spec.secret_hint,
+                provider_param_key=spec.provider_param_key,
                 secret=_masked_secret(sec_raw if isinstance(sec_raw, dict) else None) if spec.supports_secret else None,
             )
         )
@@ -781,6 +942,7 @@ async def _load_skills_overview() -> SkillsOverviewOut:
                 enabled=spec.id in enabled_skills,
                 params={k: eff_tools[k] for k in spec.param_keys},
                 defaults={k: def_tools[k] for k in spec.param_keys},
+                param_fields=_param_fields(spec.param_keys),
                 extra_instructions=extra,
             )
         )
@@ -797,17 +959,45 @@ async def _load_skills_overview() -> SkillsOverviewOut:
     return SkillsOverviewOut(builtin=builtin_out, custom=custom_out)
 
 
-def _save_global_tools_patch(existing_global: dict[str, Any], tools_patch: dict[str, Any]) -> dict[str, Any]:
-    """Merge ``tools_patch`` into global settings, validate via ``Settings``, and return clean sparse doc."""
+def _save_global_section_patch(existing_global: dict[str, Any], section: str, patch: dict[str, Any]) -> dict[str, Any]:
+    """Merge ``patch`` into one top-level section of global settings, validate, and return clean sparse doc."""
     base_defaults = Settings().model_dump(mode="json")
     merged = merge_settings(existing_global).model_dump(mode="json")
-    merged_tools = dict(merged["tools"])
-    merged_tools.update(tools_patch)
-    merged["tools"] = merged_tools
+    merged_sec = dict(merged[section])
+    merged_sec.update(patch)
+    merged[section] = merged_sec
     sparse = _sparse_diff(merged, base_defaults)
     clean_doc = sparse if isinstance(sparse, dict) else {}
     settings_api.validate_layers(clean_doc, check=clean_doc)
     return clean_doc
+
+
+def _save_global_tools_patch(existing_global: dict[str, Any], tools_patch: dict[str, Any]) -> dict[str, Any]:
+    """Merge ``tools_patch`` into global settings, validate via ``Settings``, and return clean sparse doc."""
+    return _save_global_section_patch(existing_global, "tools", tools_patch)
+
+
+async def _load_ops_overview() -> OpsToolsOverviewOut:
+    async with get_session() as s:
+        global_row = await s.get(SettingsDoc, "global")
+    global_val = dict(global_row.value) if global_row and isinstance(global_row.value, dict) else {}
+    effective = merge_settings(global_val)
+    return OpsToolsOverviewOut(
+        tools=[
+            OpsToolOut(
+                id=spec.id,
+                name=spec.name,
+                category=spec.category,
+                write=spec.write,
+                global_only=spec.global_only,
+                description=spec.description,
+            )
+            for spec in OPS_TOOL_SPECS
+        ],
+        kook_write_actions=list(effective.ops.kook_write_actions),
+        never_allowed=sorted(_KOOK_NEVER),
+        role_rules=dict(effective.ops.role_rules),
+    )
 
 
 def _validate_custom_skill(skill: CustomSkillIn | CustomSkillUpdateIn, *, skill_id: str | None = None) -> None:
@@ -830,6 +1020,52 @@ def _validate_custom_skill(skill: CustomSkillIn | CustomSkillUpdateIn, *, skill_
 
 
 # --- Tools Routes ---------------------------------------------------------------------
+
+
+@router.get("/tools/ops")
+async def get_ops_tools_overview() -> OpsToolsOverviewOut:
+    """List all registered ops agent tools, global KOOK write whitelist, and global role authorization rules."""
+    return await _load_ops_overview()
+
+
+@router.put("/tools/ops")
+async def update_ops_tools_config(body: OpsToolsConfigIn, actor: Actor) -> OpsToolsOverviewOut:
+    """Update global ``ops.kook_write_actions`` and/or ``ops.role_rules``."""
+    patch: dict[str, Any] = {}
+    if body.kook_write_actions is not None:
+        cleaned = list(dict.fromkeys("/" + p.strip().lstrip("/") for p in body.kook_write_actions if p.strip()))
+        forbidden = [p for p in cleaned if p in _KOOK_NEVER]
+        if forbidden:
+            raise unprocessable(f"高危接口禁止加入白名单：{', '.join(forbidden)}")
+        patch["kook_write_actions"] = cleaned
+    if body.role_rules is not None:
+        normalized_rules: dict[str, Any] = {}
+        for rid, rule in body.role_rules.items():
+            clean_rid = rid.strip()
+            if not clean_rid:
+                continue
+            writes = list(dict.fromkeys("/" + p.strip().lstrip("/") for p in rule.kook_write_actions if p.strip()))
+            forbidden = [p for p in writes if p in _KOOK_NEVER]
+            if forbidden:
+                raise unprocessable(f"角色 {clean_rid} 不能授权高危接口：{', '.join(forbidden)}")
+            normalized_rules[clean_rid] = {
+                "tools": list(dict.fromkeys(rule.tools)),
+                "kook_write_actions": writes,
+                "guild_only": rule.guild_only,
+            }
+        patch["role_rules"] = normalized_rules
+
+    if patch:
+        async with change(actor, "ops", "update", "global") as c:
+            row = await c.session.get(SettingsDoc, "global")
+            existing = dict(row.value) if row and isinstance(row.value, dict) else {}
+            new_doc = _save_global_section_patch(existing, "ops", patch)
+            if row is None:
+                c.session.add(SettingsDoc(key="global", value=new_doc))
+            else:
+                row.value = new_doc
+            c.detail = {"keys": list(patch.keys())}
+    return await _load_ops_overview()
 
 
 @router.get("/tools")

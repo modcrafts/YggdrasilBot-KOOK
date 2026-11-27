@@ -21,7 +21,7 @@
 
 ## 2. 如何新增一个内置工具（Tool）
 
-适合需要执行外部请求、查询数据库或操作媒体的原子能力。按以下 **7 步** 完成接入：
+适合需要执行外部请求、查询数据库或操作媒体的原子能力。由于控制台 `/tools` 页面已经采用 **后端元数据驱动（`param_fields`）+ 通用加密凭据表单（`supports_secret`）**，新增常规工具**无需修改前端页面代码**，按以下 **5 步** 即可完成：
 
 ### 第 1 步：实现底层逻辑（`yggdrasil/tools/<name>.py`）
 
@@ -66,21 +66,21 @@ async def my_tool(ctx: RunContext[Deps], query: str) -> str:
 在 [yggdrasil/settings.py](file:///home/user/repo/YggdrasilBot-KOOK/yggdrasil/settings.py) 中：
 
 1. 将 `"my_tool"` 加入 `ToolName = Literal[...]`。
-2. 决定是否默认开启：若默认开启，加入 `ToolSettings.enabled` 默认列表；若属于较慢的外部 I/O 工具，加入 `ToolSettings.slow_tools` 默认列表。
-3. 在 `ToolSettings` 上新增该工具的专属参数字段（务必设置合理的 `default`、`ge`/`le` 边界与中文 `description`）：
+2. 决定是否默认开启：
+   - 若面向所有成员默认开启，加入 `ToolSettings.enabled` 默认列表；
+   - 若希望 **仅允许部分 KOOK 角色调用**，则**不要**加入默认 `ToolSettings.enabled`（保持全局默认关闭），之后在控制台 **「服务器与频道」→ 覆盖 → `access.role_rules` 的 `tools_allow`** 中按角色放行即可。
+3. 在 `ToolSettings` 上新增该工具的专属参数字段（支持 `int` / `float` / `bool` / `str` / `Literal[...]`，务必设置合理的 `default`、`ge`/`le` 边界与中文 `description`）：
 
 ```python
 my_tool_timeout_s: int = Field(default=15, ge=3, le=120, description="my_tool 请求超时（秒）")
 my_tool_max_items: int = Field(default=5, ge=1, le=20, description="my_tool 单次返回条数上限")
 ```
 
-> **提示**：新增到 `ToolSettings` 的字段会自动进入 `Settings.model_json_schema()`，因此「服务器与频道」的四级稀疏覆盖无需任何额外代码即可支持该参数。
+> **提示**：前端会自动根据 `ToolSettings` 的 Pydantic Schema 渲染参数表单与校验范围；如需更友好的中文标签、单位或分组，可选在 `tools_api.py` 的 `_PARAM_UI_META` 中加一行即可。
 
 ### 第 4 步：注册到后台管理 API（`yggdrasil/admin/tools_api.py`）
 
-在 [yggdrasil/admin/tools_api.py](file:///home/user/repo/YggdrasilBot-KOOK/yggdrasil/admin/tools_api.py) 中：
-
-1. 在 `TOOL_SPECS` 中追加一条 `ToolSpec`：
+在 [yggdrasil/admin/tools_api.py](file:///home/user/repo/YggdrasilBot-KOOK/yggdrasil/admin/tools_api.py) 的 `TOOL_SPECS` 中追加一条 `ToolSpec`：
 
 ```python
 (
@@ -91,50 +91,65 @@ my_tool_max_items: int = Field(default=5, ge=1, le=20, description="my_tool 单�
         description="简明说明工具用途与效果。",
         handlers=("chat", "tldr"),
         param_keys=("my_tool_timeout_s", "my_tool_max_items"),
-        supports_secret=False,  # 如需独立加密凭据设为 True
-        related_route=None,  # 如依赖其他页面可填 "/providers" | "/routes" | "/search"
+        supports_secret=True,  # 开启后前端自动展示 Base URL + 加密 API Key + Headers 表单
+        secret_default_base_url="https://api.example.com/v1",
+        provider_param_key=None,  # 若同时支持复用控制台 Providers，填对应参数名
+        related_route=None,
         related_label=None,
     ),
 )
 ```
 
-2. 在 `_diagnose_tool()` 中补充该工具的实时状态诊断分支（返回 `(status, status_label, status_detail)`），让控制台卡片准确显示「已就绪 / 需注意 / 未配置」。
-3. 若需要在线测试功能（参考 `POST /tools/check_provenance/test`），在 `tools_api.py` 中新增测试端点（优先使用 JSON 入参，避免引入额外表单依赖）。
+可选：在 `_diagnose_tool()` 中补充定制状态诊断（若工具设置了 `supports_secret=True`，默认已内置独立凭据就绪诊断）。
 
-### 第 5 步：重新导出 OpenAPI 与前端 TypeScript SDK
+### 第 5 步：同步 OpenAPI、生成 SDK 并测试
 
 ```bash
-YGG_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= .venv/bin/python -m yggdrasil.admin.dump_openapi > web/openapi.json
-cd web && npm run gen
+YGG_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= uv run python -m yggdrasil.admin.dump_openapi > web/openapi.json
+cd web && npm run gen && npm run build
 ```
-
-> `tests/admin/test_admin_openapi.py` 会校验 `web/openapi.json` 与后端路由是否一致，改动任何 Admin API 后必须重新生成。
-
-### 第 6 步：补充前端参数表单定义（`web/src/pages/tools.tsx`）
-
-在 [web/src/pages/tools.tsx](file:///home/user/repo/YggdrasilBot-KOOK/web/src/pages/tools.tsx) 中：
-
-1. 在 `TOOL_PARAM_SPECS` 中添加该工具的表单项（`int` 或 `bool`）：
-
-```ts
-my_tool: [
-  { key: "my_tool_timeout_s", label: "请求超时", type: "int", unit: "秒", min: 3, max: 120 },
-  { key: "my_tool_max_items", label: "最大返回条数", type: "int", unit: "条", min: 1, max: 20 },
-],
-```
-
-2. 在 `summarizeParams()` 中补一行卡片参数摘要徽章。
-3. 如果工具启用了 `supports_secret=True` 或需要专用测试弹窗，可参考 `check_provenance` 的 `ToolConfigDialog` / `ProvenanceTestDialog` 扩展。
-
-### 第 7 步：编写测试与验证
-
-- 在 `tests/tools/` 编写单元测试覆盖核心逻辑与参数边界。
-- 在 `tests/admin/test_admin_tools.py` 验证 `GET /api/tools` 状态诊断与 `PUT /api/tools/<tool_id>` 更新。
-- 运行全套校验命令（见文末第 5 节）。
 
 ---
 
-## 3. 如何新增一个内置 Skill（代码型工具包）
+## 3. 如何拓展管理助手（`ops`）工具并按角色授权
+
+管理助手运行在隔离的 `ops` Agent 中（不混入普通聊天上下文和网页内容，避免 Prompt Injection），支持**超级管理员全权调用**以及**按 KOOK 角色授权调用部分 `ops` 工具**。
+
+### 新增一个 `ops` 工具（仅需 2 个文件）
+
+1. **在 [yggdrasil/settings.py](file:///home/user/repo/YggdrasilBot-KOOK/yggdrasil/settings.py)** 将新工具名加入 `OpsToolName = Literal[...]`。
+2. **在 [yggdrasil/ops/tools.py](file:///home/user/repo/YggdrasilBot-KOOK/yggdrasil/ops/tools.py)** 实现工具函数并注册到 `OPS_TOOL_SPECS`：
+
+```python
+@_op("my_ops_action", write=True)
+async def my_ops_action(ctx: RunContext[OpsDeps], channel_id: str) -> str:
+    """对当前服务器某个频道执行管理动作。"""
+    # 重要：非超管默认开启 guild_only=True，写工具必须做同服作用域校验！
+    _assert_channel_in_guild(ctx.deps, channel_id)
+    ...
+```
+
+并在 `OPS_TOOL_SPECS` 中追加：
+
+```python
+OpsToolSpec("my_ops_action", "自定义管理动作", "config", True, False, "工具说明。", my_ops_action)
+```
+
+> - 若工具影响全局（如改全局路由、全量同步），将 `global_only=True` 并在函数开头调用 `_assert_not_guild_only(ctx.deps, "my_ops_action")`。
+> - 注册进 `OPS_TOOL_SPECS` 并重新导出 OpenAPI 后，该工具会自动出现在控制台 **「工具与技能 → 管理助手 (ops)」** 的工具一览与角色授权勾选框中，**前端零改动**。
+
+### 按 KOOK 角色开放部分 `ops` 工具
+
+在控制台 **「工具与技能 → 管理助手 (ops)」**（或在 **「服务器与频道」** 对应服务器/分组/频道覆盖的 `ops.role_rules`）：
+1. 选择「全局默认规则」或指定某个服务器（可自动拉取本服 KOOK 角色名）。
+2. 点击 **「添加角色授权」**，勾选允许该角色调用的 `ops` 工具子集。
+3. 若勾选了 `kook_api`，可进一步只勾选允许该角色调用的 `kook_write_actions` 子集（如仅放行 `/message/pin`、`/message/unpin`；不勾选则该角色仅能 `GET` 只读查询）。
+4. 保持开启 **「仅限操作当前所在服务器（`guild_only`）」**：代码级强制限制该角色无法跨服操作、无法修改全局配置、无法修改 `ops` 权限本身或 `admin.*` 触发器。
+5. 被授权角色成员在频道内发送 `@bot ops <指令>` 即可使用已授权的工具。
+
+---
+
+## 4. 如何新增一个内置 Skill（代码型工具包）
 
 ### 何时做成 Skill，而不是顶层 Tool？
 
@@ -182,7 +197,7 @@ def capability(*, extra_instructions: str = "") -> Capability[Deps]:
 
 ---
 
-## 4. 如何新增自定义 Skill（零代码 / `SKILL.md`）
+## 5. 如何新增自定义 Skill（零代码 / `SKILL.md`）
 
 如果只需要注入**领域知识、社区规则、回答模板、排查 SOP 或工作流指引**（无需新增 Python 代码工具），直接在控制台 **「工具与技能 → Skills 技能 → 新建 Skill / 导入 SKILL.md」** 创建即可，实时热更新生效。
 
@@ -213,7 +228,7 @@ description: 当群友询问服务器规则、活动时间、新人入服流程�
 
 ---
 
-## 5. 安全与质量检查清单
+## 6. 安全与质量检查清单
 
 每次新增工具或内置 Skill 后，建议逐项检查：
 

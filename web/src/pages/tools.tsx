@@ -10,6 +10,7 @@ import {
   RotateCcwIcon,
   SearchIcon,
   Settings2Icon,
+  ShieldIcon,
   SparklesIcon,
   UploadIcon,
   WrenchIcon,
@@ -20,20 +21,30 @@ import { toast } from "sonner";
 import {
   createCustomSkillMutation,
   deleteCustomSkillMutation,
+  getOpsToolsOverviewOptions,
+  getScopeSettingsOptions,
   getSkillsOverviewOptions,
   getToolsOverviewOptions,
+  listGuildsOptions,
+  listKookGuildRolesOptions,
   listProvidersOptions,
+  putScopeSettingsMutation,
   testProvenanceToolMutation,
   updateBuiltinSkillMutation,
   updateCustomSkillMutation,
   updateGeneralToolPolicyMutation,
+  updateOpsToolsConfigMutation,
   updateToolConfigMutation,
 } from "@/client/@tanstack/react-query.gen";
 import type {
   BuiltinSkillOut,
   CustomSkillOut,
+  OpsRoleRule,
+  OpsToolOut,
+  OpsToolsOverviewOut,
   ProviderOut,
   ToolItemOut,
+  ToolParamFieldOut,
   ToolSecretIn,
 } from "@/client/types.gen";
 import {
@@ -52,11 +63,13 @@ import {
   PendingButton,
   QueryState,
   SectionHeader,
+  TagInput,
 } from "@/components/common";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -80,120 +93,11 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
   CATEGORY_META.filter((c) => c.value !== "all").map((c) => [c.value, c.label]),
 );
 
-type ParamFieldSpec = {
-  key: string;
-  label: string;
-  hint?: string;
-  type: "int" | "bool";
-  unit?: string;
-  min?: number;
-  max?: number;
-};
-
-const TOOL_PARAM_SPECS: Record<string, ParamFieldSpec[]> = {
-  read_url: [
-    { key: "read_url_max_chars", label: "单页最大字符数", hint: "与 read_x 共用，超出后自动分页", type: "int", unit: "字", min: 1000, max: 100000 },
-    { key: "browser_fallback", label: "浏览器渲染回退", hint: "遇到反爬/JS 渲染页面时自动切换浏览器服务（需配置 YGG_BROWSER_URL）", type: "bool" },
-    { key: "remote_fetch", label: "DeepSeek 远程抓取兜底", hint: "本地与浏览器都无法读取时，尝试由 DeepSeek 搜索源远程抓取", type: "bool" },
-  ],
-  web_search: [
-    { key: "search_results", label: "默认返回结果数", hint: "同时影响 search_x 的新闻模式返回条数", type: "int", unit: "条", min: 1, max: 20 },
-  ],
-  read_x: [
-    { key: "read_url_max_chars", label: "单页最大字符数", hint: "与 read_url 共用分页字数上限", type: "int", unit: "字", min: 1000, max: 100000 },
-  ],
-  search_x: [
-    { key: "search_x_default_hours", label: "默认回溯时间", hint: "模型未指定 hours 参数时往前搜索的小时数", type: "int", unit: "小时", min: 1, max: 720 },
-    { key: "search_results", label: "默认返回结果数", hint: "X API 新闻模式最多返回条数（与 web_search 共用）", type: "int", unit: "条", min: 1, max: 20 },
-  ],
-  read_file: [
-    { key: "file_max_mb", label: "附件下载上限", hint: "也作用于工作区 sandbox_put 与 check_provenance 下载限额", type: "int", unit: "MB", min: 1, max: 100 },
-    { key: "file_max_pages", label: "PDF 最大解析页数", type: "int", unit: "页", min: 1, max: 200 },
-    { key: "file_max_chars", label: "提取正文最大字符数", hint: "超出部分截断并提示模型", type: "int", unit: "字", min: 2000, max: 200000 },
-  ],
-  search_history: [
-    { key: "history_top_k", label: "检索返回条数", hint: "BM25 + 向量混合检索单次返回条数", type: "int", unit: "条", min: 1, max: 50 },
-  ],
-  get_messages_around: [
-    { key: "messages_around_max", label: "单侧最大拉取条数", hint: "before / after 各自允许拉取的最大消息数", type: "int", unit: "条", min: 5, max: 100 },
-  ],
-  lookup_glossary: [
-    { key: "glossary_list_max", label: "词条总览返回上限", hint: "传入空字符串列出全部黑话词条时的上限", type: "int", unit: "条", min: 10, max: 1000 },
-  ],
-  render_mermaid: [
-    { key: "render_max_source_chars", label: "源码最大字符数", hint: "与全部 render_* 工具共用", type: "int", unit: "字", min: 1000, max: 100000 },
-    { key: "render_timeout_s", label: "渲染超时时间", hint: "与全部 render_* 工具共用", type: "int", unit: "秒", min: 5, max: 120 },
-  ],
-  render_markdown: [
-    { key: "render_markdown_max_pages", label: "单次最多渲染页数", hint: "长 Markdown 分页输出 PNG 时的上限", type: "int", unit: "页", min: 1, max: 8 },
-    { key: "render_max_source_chars", label: "源码最大字符数", hint: "与全部 render_* 工具共用", type: "int", unit: "字", min: 1000, max: 100000 },
-    { key: "render_timeout_s", label: "渲染超时时间", hint: "与全部 render_* 工具共用", type: "int", unit: "秒", min: 5, max: 120 },
-  ],
-  render_html: [
-    { key: "render_max_source_chars", label: "源码最大字符数", hint: "与全部 render_* 工具共用", type: "int", unit: "字", min: 1000, max: 100000 },
-    { key: "render_timeout_s", label: "渲染超时时间", hint: "与全部 render_* 工具共用", type: "int", unit: "秒", min: 5, max: 120 },
-  ],
-  generate_image: [
-    { key: "generate_image_max_references", label: "参考图最大张数", hint: "改图/参考生图时单次允许传入的图片上限", type: "int", unit: "张", min: 0, max: 10 },
-  ],
-};
-
-const SANDBOX_GROUPS: { id: string; label: string; fields: ParamFieldSpec[] }[] = [
-  {
-    id: "exec",
-    label: "基础与命令",
-    fields: [
-      { key: "sandbox_enabled", label: "工作区全局总开关", hint: "关闭后所有频道均不挂载工作区工具", type: "bool" },
-      { key: "sandbox_command_timeout_s", label: "单次命令默认超时", hint: "sh / py 未传 timeout 时的默认秒数", type: "int", unit: "秒", min: 1, max: 300 },
-      { key: "sandbox_command_max_s", label: "单次命令最长超时", hint: "必须大于等于默认超时", type: "int", unit: "秒", min: 1, max: 1800 },
-      { key: "sandbox_invocation_s", label: "单次请求累计执行上限", hint: "一次回复中 sh / py 累计耗时上限（需小于闲置回收时间）", type: "int", unit: "秒", min: 30, max: 3600 },
-      { key: "sandbox_max_commands", label: "单次请求最大命令次数", type: "int", unit: "次", min: 1, max: 200 },
-    ],
-  },
-  {
-    id: "quota",
-    label: "生命周期与配额",
-    fields: [
-      { key: "sandbox_idle_min", label: "闲置回收时间", hint: "换算为秒必须大于单次请求累计执行上限", type: "int", unit: "分钟", min: 5, max: 1440 },
-      { key: "sandbox_max_age_min", label: "最长存活时间", type: "int", unit: "分钟", min: 10, max: 10080 },
-      { key: "sandbox_max_workspaces", label: "全局工作区总数上限", type: "int", unit: "个", min: 1, max: 50 },
-      { key: "sandbox_max_workspaces_per_channel", label: "单频道工作区上限", type: "int", unit: "个", min: 1, max: 10 },
-      { key: "sandbox_max_links", label: "单工作区公开链接上限", type: "int", unit: "个", min: 0, max: 20 },
-    ],
-  },
-  {
-    id: "budget",
-    label: "预算与工具桥接",
-    fields: [
-      { key: "sandbox_request_limit", label: "有工作区时模型请求上限", type: "int", unit: "次", min: 1, max: 200 },
-      { key: "sandbox_tool_calls_limit", label: "有工作区时工具调用上限", type: "int", unit: "次", min: 1, max: 400 },
-      { key: "bridge_run_limit", label: "单次对话工具桥接调用上限", hint: "工作区脚本通过 bridge 调用 bot 工具的上限", type: "int", unit: "次", min: 0, max: 500 },
-      { key: "bridge_job_limit", label: "单个后台任务工具桥接上限", type: "int", unit: "次", min: 0, max: 2000 },
-    ],
-  },
-  {
-    id: "jobs",
-    label: "后台任务",
-    fields: [
-      { key: "sandbox_max_jobs", label: "每频道并发后台任务上限", hint: "设为 0 关闭后台任务", type: "int", unit: "个", min: 0, max: 10 },
-      { key: "sandbox_job_command_min", label: "后台命令最长运行时间", type: "int", unit: "分钟", min: 1, max: 600 },
-      { key: "sandbox_delegate", label: "启用后台大任务（delegate）", hint: "需同时配置 YGG_RELAY_URL 与 agent 模型路由", type: "bool" },
-      { key: "sandbox_job_agent_min", label: "后台大任务最长运行时间", type: "int", unit: "分钟", min: 1, max: 240 },
-      { key: "sandbox_job_max_input_tokens", label: "后台大任务输入 Token 上限", type: "int", min: 10000 },
-      { key: "sandbox_job_max_output_tokens", label: "后台大任务输出 Token 上限", type: "int", min: 1000 },
-    ],
-  },
-];
-
-const BUILTIN_SKILL_PARAM_SPECS: Record<string, ParamFieldSpec[]> = {
-  kook: [
-    { key: "kook_upload_max_mb", label: "upload_file 上传大小上限", hint: "从工作区上传文件到 KOOK 频道的单文件上限", type: "int", unit: "MB", min: 1, max: 50 },
-    { key: "kook_pinned_shown", label: "channel_info 置顶消息展示条数", type: "int", unit: "条", min: 1, max: 20 },
-    { key: "kook_thread_body_chars", label: "帖子主楼正文截断长度", hint: "read_forum_thread 返回主楼正文的最大字符数", type: "int", unit: "字", min: 1000, max: 30000 },
-  ],
-  stickers: [
-    { key: "stickers_pool_limit", label: "表情包检索候选池上限", hint: "search_stickers 按热度预加载的最大表情包数", type: "int", unit: "张", min: 20, max: 1000 },
-  ],
+const OPS_CATEGORY_LABELS: Record<string, string> = {
+  read: "只读查询",
+  config: "配置与频道管理",
+  moderation: "审核与消息处理",
+  kook: "KOOK API",
 };
 
 function statusBadgeVariant(status: ToolStatus): "default" | "secondary" | "destructive" | "outline" {
@@ -203,49 +107,41 @@ function statusBadgeVariant(status: ToolStatus): "default" | "secondary" | "dest
   return "outline";
 }
 
-function summarizeParams(tool: ToolItemOut): string[] {
-  const p = tool.params ?? {};
-  const out: string[] = [];
-  if (tool.id === "check_provenance") {
-    out.push(`超时 ${p.provenance_timeout_s}s`, `上限 ${p.provenance_max_mb}MB`);
-    if (tool.secret?.enabled && tool.secret.api_key_masked) out.push(`独立 Key ${tool.secret.api_key_masked}`);
-  } else if (tool.id === "read_url") {
-    out.push(`单页 ${p.read_url_max_chars} 字`, p.browser_fallback ? "浏览器回退开" : "浏览器回退关", p.remote_fetch ? "远程抓取开" : "远程抓取关");
-  } else if (tool.id === "read_x") {
-    out.push(`单页 ${p.read_url_max_chars} 字`);
-  } else if (tool.id === "web_search") {
-    out.push(`返回 ${p.search_results} 条`);
-  } else if (tool.id === "search_x") {
-    out.push(`默认回溯 ${p.search_x_default_hours}h`, `新闻 ${p.search_results} 条`);
-  } else if (tool.id === "read_file") {
-    out.push(`${p.file_max_mb}MB`, `最多 ${p.file_max_pages} 页`, `${p.file_max_chars} 字`);
-  } else if (tool.id === "search_history") {
-    out.push(`Top ${p.history_top_k}`);
-  } else if (tool.id === "get_messages_around") {
-    out.push(`单侧最多 ${p.messages_around_max} 条`);
-  } else if (tool.id === "lookup_glossary") {
-    out.push(`总览上限 ${p.glossary_list_max} 条`);
-  } else if (tool.id === "render_markdown") {
-    out.push(`最多 ${p.render_markdown_max_pages} 页`, `超时 ${p.render_timeout_s}s`, `源码 ${p.render_max_source_chars} 字`);
-  } else if (tool.id === "render_mermaid" || tool.id === "render_html") {
-    out.push(`超时 ${p.render_timeout_s}s`, `源码 ${p.render_max_source_chars} 字`);
-  } else if (tool.id === "generate_image") {
-    out.push(`参考图最多 ${p.generate_image_max_references} 张`);
-  } else if (tool.id === "sandbox") {
-    out.push(
-      p.sandbox_enabled ? "总开关开" : "总开关关",
-      `命令超时 ${p.sandbox_command_timeout_s}s / ${p.sandbox_command_max_s}s`,
-      `工作区上限 ${p.sandbox_max_workspaces}`,
-      `后台任务 ${p.sandbox_max_jobs}`,
-    );
+function formatFieldChip(field: ToolParamFieldOut, value: unknown): string {
+  if (field.type === "boolean") {
+    return `${field.label}${value ? "开" : "关"}`;
   }
-  if (tool.slow) out.push("计入耗时");
+  const unit = field.unit ?? "";
+  return `${field.label} ${String(value ?? "")}${unit}`;
+}
+
+/** Dynamically summarize a tool's active parameters from backend-provided `param_fields`. */
+function summarizeParams(tool: ToolItemOut): string[] {
+  const fields = tool.param_fields ?? [];
+  const params = tool.params ?? {};
+  const out: string[] = [];
+
+  for (const field of fields.slice(0, 4)) {
+    if (field.key in params) {
+      out.push(formatFieldChip(field, params[field.key]));
+    }
+  }
+  if (fields.length > 4) {
+    out.push(`共 ${fields.length} 项参数`);
+  }
+  if (tool.secret?.enabled && tool.secret.api_key_masked) {
+    out.push(`独立 Key ${tool.secret.api_key_masked}`);
+  }
+  if (tool.slow) {
+    out.push("计入耗时");
+  }
   return out;
 }
 
 export function ToolsPage() {
   const toolsQ = useQuery(getToolsOverviewOptions());
   const skillsQ = useQuery(getSkillsOverviewOptions());
+  const opsQ = useQuery(getOpsToolsOverviewOptions());
   const providersQ = useQuery(listProvidersOptions());
 
   return (
@@ -254,7 +150,7 @@ export function ToolsPage() {
         title="工具与技能"
         description={
           <>
-            配置每个工具自身的参数、连接凭据与在线测试，并管理内置及自定义 Skills。按服务器 / 分组 / 频道 / 角色控制使用权限请在
+            集中配置每个工具自身的参数与独立加密凭据、管理内置及自定义 Skills，并配置管理助手（ops）的工具与角色授权。普通对话频道级工具权限请在
             <Link to="/channels" className="mx-1 text-primary underline-offset-4 hover:underline">
               服务器与频道
             </Link>
@@ -279,6 +175,11 @@ export function ToolsPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="ops" className="gap-1.5">
+            <ShieldIcon className="size-3.5" aria-hidden />
+            管理助手 (ops)
+            {opsQ.data && <Badge variant="secondary" className="ml-1 text-[11px]">{opsQ.data.tools.length}</Badge>}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="tools">
@@ -293,7 +194,136 @@ export function ToolsPage() {
         <TabsContent value="skills">
           <SkillsTab data={skillsQ.data} isLoading={skillsQ.isLoading} error={skillsQ.error} />
         </TabsContent>
+
+        <TabsContent value="ops">
+          <OpsTab data={opsQ.data} isLoading={opsQ.isLoading} error={opsQ.error} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// --- Shared Metadata-Driven Param Field Renderer -------------------------------------
+
+function MetaParamField({
+  field,
+  value,
+  defaultValue,
+  onChange,
+}: {
+  field: ToolParamFieldOut;
+  value: unknown;
+  defaultValue: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const hintParts: string[] = [];
+  if (field.description) hintParts.push(field.description);
+  const rangeParts: string[] = [];
+  if (field.minimum != null) rangeParts.push(`≥ ${field.minimum}`);
+  if (field.maximum != null) rangeParts.push(`≤ ${field.maximum}`);
+  if (rangeParts.length) hintParts.push(`范围：${rangeParts.join("，")}`);
+  if (defaultValue !== undefined) {
+    const defText =
+      typeof defaultValue === "boolean"
+        ? defaultValue
+          ? "开启"
+          : "关闭"
+        : `${defaultValue}${field.unit ?? ""}`;
+    hintParts.push(`默认：${defText}`);
+  }
+  const hint = hintParts.join(" · ");
+  const title = field.unit ? `${field.label}（${field.unit}）` : field.label;
+
+  if (field.type === "boolean") {
+    return (
+      <Field label={title} hint={hint} orientation="horizontal">
+        <Switch checked={Boolean(value)} onCheckedChange={onChange} />
+      </Field>
+    );
+  }
+  if (field.type === "enum" && field.options?.length) {
+    return (
+      <Field label={title} hint={hint}>
+        <OptionSelect
+          value={value == null ? null : String(value)}
+          onChange={(v) => v !== null && onChange(v)}
+          options={field.options.map((o) => ({ value: o, label: o }))}
+        />
+      </Field>
+    );
+  }
+  if (field.type === "integer" || field.type === "number") {
+    return (
+      <Field label={title} hint={hint}>
+        <NumberInput
+          className="max-w-48"
+          step={field.type === "integer" ? 1 : "any"}
+          value={typeof value === "number" ? value : null}
+          onChange={(v) => v !== null && onChange(v)}
+        />
+      </Field>
+    );
+  }
+  return (
+    <Field label={title} hint={hint}>
+      <Input value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  );
+}
+
+function ParamFieldsView({
+  fields,
+  values,
+  defaults,
+  onChange,
+}: {
+  fields: ToolParamFieldOut[];
+  values: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+  onChange: (key: string, val: unknown) => void;
+}) {
+  if (!fields.length) return null;
+  const groups = [...new Set(fields.map((f) => f.group || ""))];
+  const hasMultipleGroups = groups.length > 1 && groups.every((g) => g.length > 0);
+  if (hasMultipleGroups) {
+    return (
+      <Tabs defaultValue={groups[0]}>
+        <TabsList className="flex w-full flex-wrap">
+          {groups.map((g) => (
+            <TabsTrigger key={g} value={g} className="flex-1 text-xs">
+              {g}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {groups.map((g) => (
+          <TabsContent key={g} value={g} className="grid gap-3 pt-2">
+            {fields
+              .filter((f) => f.group === g)
+              .map((f) => (
+                <MetaParamField
+                  key={f.key}
+                  field={f}
+                  value={values[f.key]}
+                  defaultValue={defaults[f.key] ?? f.default}
+                  onChange={(v) => onChange(f.key, v)}
+                />
+              ))}
+          </TabsContent>
+        ))}
+      </Tabs>
+    );
+  }
+  return (
+    <div className="grid gap-3">
+      {fields.map((f) => (
+        <MetaParamField
+          key={f.key}
+          field={f}
+          value={values[f.key]}
+          defaultValue={defaults[f.key] ?? f.default}
+          onChange={(v) => onChange(f.key, v)}
+        />
+      ))}
     </div>
   );
 }
@@ -306,7 +336,13 @@ function ToolsTab({
   error,
   providers,
 }: {
-  data: { items: ToolItemOut[]; general: { request_limit: number; tool_calls_limit: number; slow_tools: string[] }; runtime_flags: Record<string, boolean> } | undefined;
+  data:
+    | {
+        items: ToolItemOut[];
+        general: { request_limit: number; tool_calls_limit: number; slow_tools: string[] };
+        runtime_flags: Record<string, boolean>;
+      }
+    | undefined;
   isLoading: boolean;
   error: unknown;
   providers: ProviderOut[];
@@ -531,14 +567,12 @@ function ToolsTab({
         />
       )}
 
-      {testingProvenance && (
-        <ProvenanceTestDialog onClose={() => setTestingProvenance(false)} />
-      )}
+      {testingProvenance && <ProvenanceTestDialog onClose={() => setTestingProvenance(false)} />}
     </div>
   );
 }
 
-type ProvenanceMode = "auto" | "provider" | "custom";
+type SecretMode = "auto" | "provider" | "custom";
 
 function ToolConfigDialog({
   tool,
@@ -555,17 +589,25 @@ function ToolConfigDialog({
   const [slow, setSlow] = useState(tool.slow);
   const [params, setParams] = useState<Record<string, unknown>>(() => ({ ...(tool.params ?? {}) }));
 
-  // check_provenance dedicated credential state
-  const initialMode: ProvenanceMode =
-    tool.id === "check_provenance"
-      ? String(tool.params?.provenance_provider ?? "").trim()
-        ? "provider"
-        : tool.secret?.enabled
-          ? "custom"
-          : "auto"
+  const providerKey = tool.provider_param_key ?? null;
+  const supportsSecret = Boolean(tool.supports_secret);
+  const hasProviderMode = Boolean(supportsSecret && providerKey);
+
+  const initialMode: SecretMode = hasProviderMode
+    ? String(tool.params?.[providerKey!] ?? "").trim()
+      ? "provider"
+      : tool.secret?.enabled
+        ? "custom"
+        : "auto"
+    : tool.secret?.enabled
+      ? "custom"
       : "auto";
-  const [provMode, setProvMode] = useState<ProvenanceMode>(initialMode);
-  const [provRef, setProvRef] = useState<string>(String(tool.params?.provenance_provider ?? ""));
+
+  const [secretMode, setSecretMode] = useState<SecretMode>(initialMode);
+  const [providerRef, setProviderRef] = useState<string>(
+    providerKey ? String(tool.params?.[providerKey] ?? "") : "",
+  );
+  const [secEnabled, setSecEnabled] = useState<boolean>(Boolean(tool.secret?.enabled));
   const [secBaseUrl, setSecBaseUrl] = useState<string>(tool.secret?.base_url ?? "");
   const [secApiKey, setSecApiKey] = useState<string>("");
   const [secClearKey, setSecClearKey] = useState<boolean>(false);
@@ -583,24 +625,34 @@ function ToolConfigDialog({
   const setParam = (key: string, val: unknown) => setParams((cur) => ({ ...cur, [key]: val }));
   const resetDefaults = () => {
     setParams({ ...(tool.defaults ?? {}) });
-    if (tool.id === "check_provenance") {
-      setProvMode("auto");
-      setProvRef("");
+    if (hasProviderMode) {
+      setSecretMode("auto");
+      setProviderRef("");
     }
   };
 
   const submit = () => {
     const bodyParams: Record<string, unknown> = { ...params };
     let secretPayload: ToolSecretIn | null = null;
-    if (tool.id === "check_provenance") {
-      bodyParams.provenance_provider = provMode === "provider" ? provRef.trim() : "";
-      secretPayload = {
-        enabled: provMode === "custom",
-        base_url: secBaseUrl.trim(),
-        api_key: secApiKey.trim() || null,
-        clear_api_key: secClearKey,
-        headers: secHeaders,
-      };
+    if (supportsSecret) {
+      if (hasProviderMode && providerKey) {
+        bodyParams[providerKey] = secretMode === "provider" ? providerRef.trim() : "";
+        secretPayload = {
+          enabled: secretMode === "custom",
+          base_url: secBaseUrl.trim(),
+          api_key: secApiKey.trim() || null,
+          clear_api_key: secClearKey,
+          headers: secHeaders,
+        };
+      } else {
+        secretPayload = {
+          enabled: secEnabled,
+          base_url: secBaseUrl.trim(),
+          api_key: secApiKey.trim() || null,
+          clear_api_key: secClearKey,
+          headers: secHeaders,
+        };
+      }
     }
     save.mutate({
       path: { tool_id: tool.id },
@@ -613,10 +665,10 @@ function ToolConfigDialog({
     });
   };
 
-  const fields = TOOL_PARAM_SPECS[tool.id] ?? [];
-  const isSandbox = tool.id === "sandbox";
-  const isProvenance = tool.id === "check_provenance";
-  const hasParams = fields.length > 0 || isSandbox || isProvenance;
+  const fields = tool.param_fields ?? [];
+  const hasMultipleGroups = new Set(fields.map((f) => f.group).filter(Boolean)).size > 1;
+  const hasParams = fields.length > 0 || supportsSecret;
+  const isCustomSecretActive = hasProviderMode ? secretMode === "custom" : secEnabled;
 
   const providerOptions = providers.map((p) => ({
     value: p.name,
@@ -631,13 +683,15 @@ function ToolConfigDialog({
       description={tool.description}
       onSubmit={submit}
       pending={save.isPending}
-      submitDisabled={(isProvenance && provMode === "custom" && !headersValid) || (isProvenance && provMode === "provider" && !provRef.trim())}
-      className={isSandbox || isProvenance ? "sm:max-w-2xl" : "sm:max-w-lg"}
+      submitDisabled={
+        (isCustomSecretActive && !headersValid) || (hasProviderMode && secretMode === "provider" && !providerRef.trim())
+      }
+      className={hasMultipleGroups || supportsSecret ? "sm:max-w-2xl" : "sm:max-w-lg"}
     >
       <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
         <Field
           label="全局默认启用"
-          hint="控制该工具的全局默认开关；服务器 / 分组 / 频道与角色权限覆盖请在「服务器与频道」中单独配置。"
+          hint="全局默认开关；若想「仅允许部分 KOOK 角色调用」，关闭此处后前往「服务器与频道」→ 覆盖 → access.role_rules 的 tools_allow 为指定角色放行。"
           orientation="horizontal"
         >
           <Switch checked={enabled} onCheckedChange={setEnabled} />
@@ -651,58 +705,68 @@ function ToolConfigDialog({
         </Field>
       </div>
 
-      {isProvenance && (
+      {supportsSecret && (
         <div className="grid gap-4 rounded-lg border p-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">OpenAI Content Provenance 连接设置</span>
+            <span className="text-sm font-medium">连接与加密凭据</span>
             <Badge variant={statusBadgeVariant(tool.status)}>{tool.status_label}</Badge>
           </div>
-          <Field
-            label="凭据来源模式"
-            hint={
-              runtimeFlags.openai_env_key_configured
-                ? "自动模式优先匹配指向 api.openai.com 的已启用 Provider，否则回退至环境变量 OPENAI_API_KEY（当前已配置）。"
-                : "自动模式优先匹配指向 api.openai.com 的已启用 Provider（当前未设置环境变量 OPENAI_API_KEY）。"
-            }
-          >
-            <OptionSelect
-              value={provMode}
-              onChange={(v) => setProvMode((v as ProvenanceMode) ?? "auto")}
-              options={[
-                { value: "auto", label: "自动匹配（官方 OpenAI Provider 或 OPENAI_API_KEY）" },
-                { value: "provider", label: "复用已有 Provider（从控制台 Providers 选择）" },
-                { value: "custom", label: "独立加密凭据（单独配置 Base URL 与 API Key）" },
-              ]}
-            />
-          </Field>
 
-          {provMode === "provider" && (
-            <Field
-              label="选择提供商"
-              hint="会向该提供商的 /v1/content_provenance_checks 发送原始文件字节（支持 OpenAI 官方或兼容代理）。"
-            >
-              {providerOptions.length > 0 ? (
+          {hasProviderMode ? (
+            <>
+              <Field
+                label="凭据来源模式"
+                hint={
+                  tool.id === "check_provenance"
+                    ? runtimeFlags.openai_env_key_configured
+                      ? "自动模式优先匹配指向 api.openai.com 的已启用 Provider，否则回退至环境变量 OPENAI_API_KEY（当前已配置）。"
+                      : "自动模式优先匹配指向 api.openai.com 的已启用 Provider（当前未设置环境变量 OPENAI_API_KEY）。"
+                    : "选择自动匹配、复用已有 Provider，或单独配置本工具的加密凭据。"
+                }
+              >
                 <OptionSelect
-                  value={provRef || null}
-                  onChange={(v) => setProvRef(v ?? "")}
-                  placeholder="选择一个已配置的 Provider"
-                  options={providerOptions}
+                  value={secretMode}
+                  onChange={(v) => setSecretMode((v as SecretMode) ?? "auto")}
+                  options={[
+                    { value: "auto", label: "自动匹配（默认规则 / 环境变量）" },
+                    { value: "provider", label: "复用已有 Provider（从控制台 Providers 选择）" },
+                    { value: "custom", label: "独立加密凭据（单独配置 Base URL 与 API Key）" },
+                  ]}
                 />
-              ) : (
-                <Input
-                  placeholder="当前没有已配置的 Provider，可输入名称或先去 Providers 添加"
-                  value={provRef}
-                  onChange={(e) => setProvRef(e.target.value)}
-                />
+              </Field>
+              {secretMode === "provider" && (
+                <Field label="选择提供商">
+                  {providerOptions.length > 0 ? (
+                    <OptionSelect
+                      value={providerRef || null}
+                      onChange={(v) => setProviderRef(v ?? "")}
+                      placeholder="选择一个已配置的 Provider"
+                      options={providerOptions}
+                    />
+                  ) : (
+                    <Input
+                      placeholder="输入 Provider 名称或先在 Providers 页面添加"
+                      value={providerRef}
+                      onChange={(e) => setProviderRef(e.target.value)}
+                    />
+                  )}
+                </Field>
               )}
+            </>
+          ) : (
+            <Field label="启用独立加密凭据" orientation="horizontal">
+              <Switch checked={secEnabled} onCheckedChange={setSecEnabled} />
             </Field>
           )}
 
-          {provMode === "custom" && (
+          {isCustomSecretActive && (
             <div className="grid gap-3 rounded-md border bg-muted/10 p-3">
-              <Field label="Base URL" hint="留空默认使用 https://api.openai.com/v1；如使用代理请填完整 https:// 地址。">
+              <Field
+                label="Base URL"
+                hint={tool.secret_hint || (tool.secret_default_base_url ? `留空默认使用 ${tool.secret_default_base_url}` : "可选，填完整 https:// 地址")}
+              >
                 <Input
-                  placeholder="https://api.openai.com/v1"
+                  placeholder={tool.secret_default_base_url || "https://api.example.com/v1"}
                   value={secBaseUrl}
                   onChange={(e) => setSecBaseUrl(e.target.value)}
                 />
@@ -711,13 +775,13 @@ function ToolConfigDialog({
                 masked={tool.secret?.api_key_masked}
                 value={secApiKey}
                 clear={secClearKey}
-                emptyHint="必填（加密存储，只展示末四位）"
+                emptyHint="加密存储，只展示末四位"
                 onChange={(patch) => {
                   if (patch.api_key !== undefined) setSecApiKey(patch.api_key);
                   if (patch.clear_api_key !== undefined) setSecClearKey(patch.clear_api_key);
                 }}
               />
-              <Field label="附加请求头（JSON，可选）" hint='例如 {"OpenAI-Organization": "org-..."}'>
+              <Field label="附加请求头（JSON，可选）" hint='例如 {"X-Custom-Header": "value"}'>
                 <JsonEditor
                   rows={3}
                   value={secHeaders}
@@ -727,62 +791,15 @@ function ToolConfigDialog({
               </Field>
             </div>
           )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="请求超时（秒）" hint="范围 5–120 秒，默认 30">
-              <NumberInput
-                value={typeof params.provenance_timeout_s === "number" ? params.provenance_timeout_s : 30}
-                onChange={(v) => v !== null && setParam("provenance_timeout_s", v)}
-              />
-            </Field>
-            <Field label="单文件大小上限（MB）" hint="OpenAI 上限为 25MB，默认 25">
-              <NumberInput
-                value={typeof params.provenance_max_mb === "number" ? params.provenance_max_mb : 25}
-                onChange={(v) => v !== null && setParam("provenance_max_mb", v)}
-              />
-            </Field>
-          </div>
         </div>
       )}
 
-      {isSandbox && (
-        <Tabs defaultValue="exec">
-          <TabsList className="grid w-full grid-cols-4">
-            {SANDBOX_GROUPS.map((g) => (
-              <TabsTrigger key={g.id} value={g.id} className="text-xs">
-                {g.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          {SANDBOX_GROUPS.map((g) => (
-            <TabsContent key={g.id} value={g.id} className="grid gap-3 pt-2">
-              {g.fields.map((f) => (
-                <ParamField
-                  key={f.key}
-                  spec={f}
-                  value={params[f.key]}
-                  defaultValue={tool.defaults?.[f.key]}
-                  onChange={(v) => setParam(f.key, v)}
-                />
-              ))}
-            </TabsContent>
-          ))}
-        </Tabs>
-      )}
-
-      {fields.length > 0 && (
-        <div className="grid gap-3">
-          {fields.map((f) => (
-            <ParamField
-              key={f.key}
-              spec={f}
-              value={params[f.key]}
-              defaultValue={tool.defaults?.[f.key]}
-              onChange={(v) => setParam(f.key, v)}
-            />
-          ))}
-        </div>
-      )}
+      <ParamFieldsView
+        fields={fields}
+        values={params}
+        defaults={tool.defaults ?? {}}
+        onChange={setParam}
+      />
 
       {!hasParams && (
         <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
@@ -808,43 +825,6 @@ function ToolConfigDialog({
         </div>
       )}
     </FormDialog>
-  );
-}
-
-function ParamField({
-  spec,
-  value,
-  defaultValue,
-  onChange,
-}: {
-  spec: ParamFieldSpec;
-  value: unknown;
-  defaultValue: unknown;
-  onChange: (v: unknown) => void;
-}) {
-  const hintParts: string[] = [];
-  if (spec.hint) hintParts.push(spec.hint);
-  if (defaultValue !== undefined) {
-    const defText = typeof defaultValue === "boolean" ? (defaultValue ? "开启" : "关闭") : `${defaultValue}${spec.unit ?? ""}`;
-    hintParts.push(`默认：${defText}`);
-  }
-  const hint = hintParts.join(" · ");
-
-  if (spec.type === "bool") {
-    return (
-      <Field label={spec.label} hint={hint} orientation="horizontal">
-        <Switch checked={Boolean(value)} onCheckedChange={onChange} />
-      </Field>
-    );
-  }
-  return (
-    <Field label={spec.unit ? `${spec.label}（${spec.unit}）` : spec.label} hint={hint}>
-      <NumberInput
-        className="max-w-48"
-        value={typeof value === "number" ? value : null}
-        onChange={(v) => v !== null && onChange(v)}
-      />
-    </Field>
   );
 }
 
@@ -1140,9 +1120,9 @@ function SkillsTab({
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                  {Object.entries(skill.params ?? {}).map(([k, v]) => (
-                    <Badge key={k} variant="outline" className="text-[11px] font-normal text-muted-foreground">
-                      {k}={String(v)}
+                  {(skill.param_fields ?? []).map((f) => (
+                    <Badge key={f.key} variant="outline" className="text-[11px] font-normal text-muted-foreground">
+                      {formatFieldChip(f, skill.params?.[f.key])}
                     </Badge>
                   ))}
                   {skill.extra_instructions && (
@@ -1193,8 +1173,6 @@ function BuiltinSkillDialog({ skill, onClose }: { skill: BuiltinSkillOut; onClos
     },
   });
 
-  const specs = BUILTIN_SKILL_PARAM_SPECS[skill.id] ?? [];
-
   return (
     <FormDialog
       open
@@ -1213,15 +1191,12 @@ function BuiltinSkillDialog({ skill, onClose }: { skill: BuiltinSkillOut; onClos
       <Field label="全局默认启用" orientation="horizontal">
         <Switch checked={enabled} onCheckedChange={setEnabled} />
       </Field>
-      {specs.map((f) => (
-        <ParamField
-          key={f.key}
-          spec={f}
-          value={params[f.key]}
-          defaultValue={skill.defaults?.[f.key]}
-          onChange={(v) => setParams((cur) => ({ ...cur, [f.key]: v }))}
-        />
-      ))}
+      <ParamFieldsView
+        fields={skill.param_fields ?? []}
+        values={params}
+        defaults={skill.defaults ?? {}}
+        onChange={(k, v) => setParams((cur) => ({ ...cur, [k]: v }))}
+      />
       <Field
         label="补充指令（可选）"
         hint="会在模型加载该技能时附加到内置 INSTRUCTIONS 末尾，例如补充本社区的发帖/表情包习惯。"
@@ -1498,6 +1473,424 @@ function CustomSkillDialog({
           <Switch checked={enabled} onCheckedChange={setEnabled} />
         </Field>
       </div>
+    </FormDialog>
+  );
+}
+
+// --- Tab 3: Ops Agent Tools & Role Authorization -------------------------------------
+
+function OpsTab({
+  data,
+  isLoading,
+  error,
+}: {
+  data: OpsToolsOverviewOut | undefined;
+  isLoading: boolean;
+  error: unknown;
+}) {
+  const guildsQ = useQuery(listGuildsOptions());
+  const [scopeGuildId, setScopeGuildId] = useState<string | null>(null);
+  const scopeSettingsQ = useQuery({
+    ...getScopeSettingsOptions({ path: { scope: "guild", scope_id: scopeGuildId ?? "" } }),
+    enabled: Boolean(scopeGuildId),
+  });
+  const liveRolesQ = useQuery({
+    ...listKookGuildRolesOptions({ path: { guild_id: scopeGuildId ?? "" } }),
+    enabled: Boolean(scopeGuildId),
+    retry: false,
+  });
+
+  const [writeActions, setWriteActions] = useState<string[]>([]);
+  const [editingRule, setEditingRule] = useState<{ roleId: string; rule: OpsRoleRule; isNew: boolean } | null>(null);
+
+  useEffect(() => {
+    if (data) setWriteActions(data.kook_write_actions);
+  }, [data?.kook_write_actions]);
+
+  const saveGlobalOps = useMutation({
+    ...updateOpsToolsConfigMutation(),
+    onSuccess: () => toast.success("已保存管理助手配置并热更新"),
+  });
+
+  const saveGuildScope = useMutation({
+    ...putScopeSettingsMutation(),
+    onSuccess: () => toast.success("已保存该服务器的管理助手角色授权"),
+  });
+
+  if (!data) {
+    return <QueryState isLoading={isLoading} error={error} variant="card" />;
+  }
+
+  const actionsDirty = JSON.stringify(writeActions) !== JSON.stringify(data.kook_write_actions);
+
+  const guildRoleRulesRaw = scopeGuildId
+    ? ((scopeSettingsQ.data?.value as Record<string, unknown> | undefined)?.ops as Record<string, unknown> | undefined)
+        ?.role_rules
+    : undefined;
+  const activeRoleRules: Record<string, OpsRoleRule> = scopeGuildId
+    ? isPlainObject(guildRoleRulesRaw)
+      ? (guildRoleRulesRaw as Record<string, OpsRoleRule>)
+      : {}
+    : data.role_rules;
+
+  const roleNameMap = new Map((liveRolesQ.data ?? []).map((r) => [r.role_id, r.name]));
+  const toolNameMap = new Map(data.tools.map((t) => [t.id, t.name]));
+
+  const persistRoleRules = (nextRules: Record<string, OpsRoleRule>, onDone?: () => void) => {
+    if (!scopeGuildId) {
+      saveGlobalOps.mutate(
+        { body: { role_rules: nextRules } },
+        { onSuccess: () => onDone?.() },
+      );
+      return;
+    }
+    const existingDoc = isPlainObject(scopeSettingsQ.data?.value) ? { ...scopeSettingsQ.data.value } : {};
+    const existingOps = isPlainObject(existingDoc.ops) ? { ...existingDoc.ops } : {};
+    if (Object.keys(nextRules).length > 0) {
+      existingOps.role_rules = nextRules;
+      existingDoc.ops = existingOps;
+    } else {
+      delete existingOps.role_rules;
+      if (Object.keys(existingOps).length > 0) existingDoc.ops = existingOps;
+      else delete existingDoc.ops;
+    }
+    saveGuildScope.mutate(
+      { path: { scope: "guild", scope_id: scopeGuildId }, body: existingDoc },
+      { onSuccess: () => onDone?.() },
+    );
+  };
+
+  return (
+    <div className="grid gap-8">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">KOOK API 写接口全局白名单（ops.kook_write_actions）</CardTitle>
+              <CardDescription className="mt-1 text-xs">
+                管理助手通过 <code className="font-mono">kook_api</code> 调用 GET 只读接口默认放行；POST 写接口仅限此处列出的路径，且角色授权不能超过此白名单。
+                高危禁区（{data.never_allowed.join("、")}）始终硬编码禁止。
+              </CardDescription>
+            </div>
+            <PendingButton
+              size="sm"
+              pending={saveGlobalOps.isPending}
+              disabled={!actionsDirty}
+              onClick={() => saveGlobalOps.mutate({ body: { kook_write_actions: writeActions } })}
+            >
+              {actionsDirty ? "保存白名单" : "已同步"}
+            </PendingButton>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Field label="允许的 POST 接口路径" hint="输入以 / 开头的 KOOK API v3 路径后回车添加，如 /message/pin、/guild-role/grant">
+            <TagInput value={writeActions} onChange={setWriteActions} placeholder="例如 /message/pin" />
+          </Field>
+        </CardContent>
+      </Card>
+
+      <section className="grid gap-3">
+        <SectionHeader
+          title="按 KOOK 角色授权管理助手（ops）工具"
+          description="超级管理员始终拥有全部 ops 工具与全局权限。你可以为指定 KOOK 角色放行部分 ops 工具（默认开启同服隔离，禁止越权修改全局、其他服务器或 ops 权限本身）。"
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <OptionSelect
+                aria-label="选择配置范围"
+                className="w-56"
+                value={scopeGuildId}
+                onChange={setScopeGuildId}
+                noneLabel="全局默认规则"
+                options={(guildsQ.data ?? []).map((g) => ({
+                  value: g.guild_id,
+                  label: `服务器：${g.name || g.guild_id}`,
+                }))}
+              />
+              <Button
+                size="sm"
+                onClick={() =>
+                  setEditingRule({
+                    roleId: "",
+                    rule: { tools: ["status", "list_channels"], kook_write_actions: [], guild_only: true },
+                    isNew: true,
+                  })
+                }
+              >
+                <PlusIcon data-icon="inline-start" /> 添加角色授权
+              </Button>
+            </div>
+          }
+        />
+
+        {scopeGuildId && scopeSettingsQ.isLoading ? (
+          <QueryState isLoading variant="card" />
+        ) : Object.keys(activeRoleRules).length === 0 ? (
+          <Empty
+            icon={<ShieldIcon />}
+            description={
+              scopeGuildId
+                ? "当前服务器尚未单独覆盖 ops 角色授权（将继承全局默认规则）。点击右上角可按本服 KOOK 角色直接勾选。"
+                : "目前仅超级管理员可使用 @bot ops 指令。如需允许部分 KOOK 角色使用部分 ops 工具，可点击右上角添加授权。"
+            }
+          >
+            {scopeGuildId ? "本服务器暂无单独的 ops 角色授权" : "暂无全局 ops 角色授权"}
+          </Empty>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {Object.entries(activeRoleRules).map(([roleId, rule]) => {
+              const roleName = roleNameMap.get(roleId);
+              const tools = rule.tools ?? [];
+              const writes = rule.kook_write_actions ?? [];
+              const guildOnly = rule.guild_only ?? true;
+              return (
+                <Card key={roleId} className="flex flex-col">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <CardTitle className="text-base">{roleName || `角色 ${roleId}`}</CardTitle>
+                          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                            {roleId}
+                          </code>
+                        </div>
+                      </div>
+                      <Badge variant={guildOnly ? "secondary" : "destructive"} className="text-[11px]">
+                        {guildOnly ? "仅限本服务器" : "允许跨服/全局"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid flex-1 gap-2 pt-0">
+                    <div>
+                      <div className="mb-1 text-xs text-muted-foreground">已授权 ops 工具（{tools.length}）：</div>
+                      <div className="flex flex-wrap gap-1">
+                        {tools.map((tid) => (
+                          <Badge key={tid} variant="outline" className="text-[11px] font-normal">
+                            {toolNameMap.get(tid) ?? tid}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    {tools.includes("kook_api") && (
+                      <div>
+                        <div className="mb-1 text-xs text-muted-foreground">
+                          kook_api 写接口：
+                        </div>
+                        {writes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {writes.map((w) => (
+                              <Badge key={w} variant="secondary" className="font-mono text-[11px] font-normal">
+                                {w}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">仅 GET 只读（未授写接口）</span>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                  <CardFooter className="flex justify-end gap-1.5 border-t pt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditingRule({ roleId, rule, isNew: false })}
+                    >
+                      <PencilIcon data-icon="inline-start" /> 编辑
+                    </Button>
+                    <ConfirmButton
+                      title={`移除角色 ${roleName || roleId} 的 ops 授权？`}
+                      onConfirm={() => {
+                        const { [roleId]: _, ...rest } = activeRoleRules;
+                        persistRoleRules(rest);
+                      }}
+                    >
+                      删除
+                    </ConfirmButton>
+                  </CardFooter>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-3">
+        <SectionHeader
+          title="已注册的 ops 管理工具一览"
+          description="来自后端 OPS_TOOL_SPECS 注册表；新增管理助手工具后会自动出现在此列表和上方角色授权勾选框中。"
+        />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {data.tools.map((t) => (
+            <div key={t.id} className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-sm font-medium">{t.name}</span>
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground">{t.id}</code>
+                <Badge variant={t.write ? "default" : "secondary"} className="ml-auto text-[10px]">
+                  {t.write ? "写" : "读"}
+                </Badge>
+                {t.global_only && (
+                  <Badge variant="outline" className="text-[10px]">
+                    仅全局
+                  </Badge>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{t.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {editingRule && (
+        <OpsRoleRuleDialog
+          initial={editingRule}
+          allTools={data.tools}
+          globalWriteActions={data.kook_write_actions}
+          liveRoles={liveRolesQ.data ?? []}
+          existingRoleIds={Object.keys(activeRoleRules)}
+          pending={saveGlobalOps.isPending || saveGuildScope.isPending}
+          onSave={(roleId, rule) => {
+            persistRoleRules({ ...activeRoleRules, [roleId]: rule }, () => setEditingRule(null));
+          }}
+          onClose={() => setEditingRule(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function OpsRoleRuleDialog({
+  initial,
+  allTools,
+  globalWriteActions,
+  liveRoles,
+  existingRoleIds,
+  pending,
+  onSave,
+  onClose,
+}: {
+  initial: { roleId: string; rule: OpsRoleRule; isNew: boolean };
+  allTools: OpsToolOut[];
+  globalWriteActions: string[];
+  liveRoles: { role_id: string; name: string }[];
+  existingRoleIds: string[];
+  pending: boolean;
+  onSave: (roleId: string, rule: OpsRoleRule) => void;
+  onClose: () => void;
+}) {
+  const [roleId, setRoleId] = useState(initial.roleId);
+  const [tools, setTools] = useState<OpsToolOut["id"][]>(initial.rule.tools ?? []);
+  const [writes, setWrites] = useState<string[]>(initial.rule.kook_write_actions ?? []);
+  const [guildOnly, setGuildOnly] = useState<boolean>(initial.rule.guild_only ?? true);
+
+  const toggleTool = (id: OpsToolOut["id"], checked: boolean) => {
+    setTools((cur) => (checked ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)));
+  };
+
+  const categories = ["read", "config", "moderation", "kook"] as const;
+  const availableLiveRoles = liveRoles.filter((r) => !existingRoleIds.includes(r.role_id) || r.role_id === initial.roleId);
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={initial.isNew ? "添加 ops 角色授权" : `编辑角色 ${initial.roleId} 的 ops 授权`}
+      description="被授权的角色在频道中 @bot ops <指令> 即可调用以下选中的管理工具。"
+      onSubmit={() => {
+        const cleanTools = guildOnly
+          ? tools.filter((id) => !allTools.find((t) => t.id === id)?.global_only)
+          : tools;
+        onSave(roleId.trim(), {
+          tools: cleanTools,
+          kook_write_actions: cleanTools.includes("kook_api") ? writes : [],
+          guild_only: guildOnly,
+        });
+      }}
+      pending={pending}
+      submitDisabled={!roleId.trim() || tools.length === 0}
+      className="sm:max-w-2xl"
+    >
+      <Field label="KOOK 角色 ID" hint="选择本服同步到的 KOOK 角色，或手动输入角色 ID">
+        <div className="grid gap-2">
+          {initial.isNew && availableLiveRoles.length > 0 && (
+            <OptionSelect
+              value={availableLiveRoles.some((r) => r.role_id === roleId) ? roleId : null}
+              onChange={(v) => v && setRoleId(v)}
+              placeholder="从本服 KOOK 角色中选择…"
+              options={availableLiveRoles.map((r) => ({ value: r.role_id, label: `${r.name}（${r.role_id}）` }))}
+            />
+          )}
+          <Input
+            required
+            disabled={!initial.isNew}
+            className="font-mono text-xs"
+            placeholder="例如 123456"
+            value={roleId}
+            onChange={(e) => setRoleId(e.target.value)}
+          />
+        </div>
+      </Field>
+
+      <Field
+        label="仅限操作当前所在服务器（guild_only）"
+        hint="强烈建议保持开启：强制校验所有读写只能作用在触发所在服务器内，禁止改全局配置、其他服务器或修改 ops 权限本身。"
+        orientation="horizontal"
+      >
+        <Switch checked={guildOnly} onCheckedChange={setGuildOnly} />
+      </Field>
+
+      <div className="grid gap-3">
+        {categories.map((cat) => {
+          const items = allTools.filter((t) => t.category === cat);
+          if (!items.length) return null;
+          return (
+            <div key={cat} className="rounded-lg border p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                {OPS_CATEGORY_LABELS[cat] ?? cat}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {items.map((t) => {
+                  const disabled = guildOnly && t.global_only;
+                  const checked = !disabled && tools.includes(t.id);
+                  return (
+                    <label
+                      key={t.id}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs transition-colors",
+                        checked && "border-primary/40 bg-primary/5",
+                        disabled && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled={disabled}
+                        onCheckedChange={(v) => toggleTool(t.id, Boolean(v))}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="font-medium text-foreground">{t.name}</span>
+                          <code className="font-mono text-[10px] text-muted-foreground">{t.id}</code>
+                          {t.global_only && <Badge variant="outline" className="text-[10px]">仅全局</Badge>}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">{t.description}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {tools.includes("kook_api") && (
+        <Field
+          label="允许该角色通过 kook_api 调用的写接口（可选）"
+          hint="留空表示该角色仅可使用 GET 只读查询；只能从全局 ops.kook_write_actions 白名单里勾选子集。"
+        >
+          <MultiToggle options={globalWriteActions} value={writes} onChange={setWrites} />
+        </Field>
+      )}
     </FormDialog>
   );
 }

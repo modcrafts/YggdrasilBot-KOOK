@@ -144,6 +144,9 @@ async def dispatch(kook: Kook, incoming: Incoming) -> None:
         role = "superuser"
 
     settings = snap.settings(channel_id=channel_id, guild_id=guild_id)
+    from yggdrasil.ops.tools import resolve_ops_grant
+
+    ops_grant = resolve_ops_grant(settings, incoming, snap.superusers)
     reply = incoming.reply
     resolved = current().match(
         MatchInput(
@@ -155,6 +158,7 @@ async def dispatch(kook: Kook, incoming: Incoming) -> None:
             to_me=_mentions_me(incoming),
             replied_to_bot=reply is not None and reply.sender.user_id == incoming.self_id,
             role=role,
+            ops_authorized=ops_grant is not None,
         )
     )
     if resolved is None:
@@ -265,9 +269,13 @@ async def _invoke_handler(kook: Kook, incoming: Incoming, resolved: Resolved) ->
     elif handler == "admin.status":
         await _handle_status(kook, incoming)
     elif handler == "admin.ops":
-        if incoming.user_id in snapshot().superusers:
-            from yggdrasil.ops.agent import run_ops
+        from yggdrasil.ops.agent import run_ops
+        from yggdrasil.ops.tools import resolve_ops_grant
 
+        snap = snapshot()
+        gid = incoming.guild_id or (snap.guild_of(incoming.channel_id) if incoming.channel_id else None)
+        eff = snap.settings(channel_id=incoming.channel_id, guild_id=gid)
+        if resolve_ops_grant(eff, incoming, snap.superusers) is not None:
             _spawn(run_ops(kook, incoming, args))
     else:
         LOGGER.warning("unknown trigger handler: {}", handler)

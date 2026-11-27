@@ -466,6 +466,7 @@ const QUICK_OVERRIDES: { path: string[]; label: string }[] = [
   { path: ["access", "allowed_roles"], label: "角色白名单" },
   { path: ["access", "denied_roles"], label: "角色黑名单" },
   { path: ["access", "role_rules"], label: "按角色细分权限" },
+  { path: ["ops", "role_rules"], label: "管理助手角色授权" },
   { path: ["tools", "enabled"], label: "可用工具" },
   { path: ["memory", "share_in_guild"], label: "对外共享记忆" },
   { path: ["memory", "cross_channel_read"], label: "跨频道读取" },

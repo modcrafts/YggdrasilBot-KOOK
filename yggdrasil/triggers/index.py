@@ -29,6 +29,7 @@ class MatchInput:
     to_me: bool = False
     replied_to_bot: bool = False
     role: str = "member"
+    ops_authorized: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +114,7 @@ class TriggerIndex:
             rule = c.rule
             if rule.require_mention and not mentioned:
                 continue
-            if not _role_ok(rule, inp.role):
+            if not (_role_ok(rule, inp.role) or (rule.handler == "admin.ops" and inp.ops_authorized)):
                 continue
             hit = self._match_rule(c, text, lowered, inp, named)
             if hit is None:

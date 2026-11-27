@@ -126,6 +126,8 @@ async def test_tools_overview_and_per_tool_config_updates(
     assert len(items) == 17
     assert items["check_provenance"]["status"] == "ready"
     assert "OpenAI Official" in items["check_provenance"]["status_label"]
+    assert items["check_provenance"]["provider_param_key"] == "provenance_provider"
+    assert any(f["key"] == "provenance_timeout_s" for f in items["check_provenance"]["param_fields"])
     assert items["web_search"]["status"] == "ready"
     assert items["generate_image"]["enabled"] is False
 
@@ -278,3 +280,39 @@ async def test_skills_builtin_and_custom_crud(
     after = await client.get("/api/skills")
     assert after.json()["custom"] == []
     assert len(published) >= 4
+
+
+async def test_ops_tools_overview_and_role_rules_api(
+    client: httpx.AsyncClient, fake_db: dict[str, Any], published: list[str]
+) -> None:
+    resp = await client.get("/api/tools/ops")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["tools"]) >= 20
+    assert "/guild/leave" in body["never_allowed"]
+    assert body["role_rules"] == {}
+
+    # Reject forbidden high-risk KOOK paths
+    bad = await client.put("/api/tools/ops", json={"kook_write_actions": ["/guild/leave"]})
+    assert bad.status_code == 422
+
+    # Save global role_rules and trimmed kook_write_actions
+    upd = await client.put(
+        "/api/tools/ops",
+        json={
+            "kook_write_actions": ["/message/pin", "/message/unpin"],
+            "role_rules": {
+                "10086": {
+                    "tools": ["status", "kook_api", "decide_review"],
+                    "kook_write_actions": ["/message/pin"],
+                    "guild_only": True,
+                }
+            },
+        },
+    )
+    assert upd.status_code == 200, upd.text
+    updated = upd.json()
+    assert updated["kook_write_actions"] == ["/message/pin", "/message/unpin"]
+    assert updated["role_rules"]["10086"]["tools"] == ["status", "kook_api", "decide_review"]
+    assert fake_db["settings"]["global"].value["ops"]["role_rules"]["10086"]["guild_only"] is True
+    assert published

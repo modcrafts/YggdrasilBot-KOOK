@@ -23,7 +23,7 @@ from yggdrasil.kook.model import Incoming, Message
 from yggdrasil.llm.errors import describe
 from yggdrasil.llm.registry import TaskNotConfigured, chat_model, record_usage
 from yggdrasil.llm.streaming import drain_events
-from yggdrasil.ops.tools import OpsDeps, QuotedMessage, ops_tools
+from yggdrasil.ops.tools import OpsDeps, QuotedMessage, ops_tools, resolve_ops_grant
 from yggdrasil.people import People, resolve
 from yggdrasil.prompts import render
 from yggdrasil.runtime import snapshot
@@ -76,13 +76,14 @@ def _prompt(instruction: str, quoted: QuotedMessage | None, nonce: str) -> str:
 
 
 async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
-    """Carry out one superuser instruction; anyone else is ignored."""
+    """Carry out one superuser or authorized KOOK-role ops instruction; anyone else is ignored."""
     snap = snapshot()
     channel_id = incoming.channel_id
     guild_id = incoming.guild_id or (snap.guild_of(channel_id) if channel_id else None)
-    if incoming.user_id not in snap.superusers:
-        return "failed"
     settings = snap.settings(channel_id=channel_id, guild_id=guild_id)
+    grant = resolve_ops_grant(settings, incoming, snap.superusers)
+    if grant is None:
+        return "failed"
     try:
         resolved = chat_model("ops", default_limits=UsageLimits(request_limit=10, tool_calls_limit=12))
     except TaskNotConfigured:
@@ -97,6 +98,7 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
         channel_id=channel_id,
         guild_id=guild_id,
         quoted=await _quoted(incoming, ident.self_id, settings.persona.name),
+        grant=grant,
     )
     deps.notes = TraceNotes(full=settings.privacy.capture_llm_content, bot=(ident.self_id, settings.persona.name))
     if deps.notes.full:
@@ -142,6 +144,10 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
                     where=where,
                     in_channel=channel_id is not None,
                     nonce=nonce,
+                    is_superuser=grant.is_superuser,
+                    guild_only=grant.guild_only,
+                    allowed_tools=sorted(grant.allowed_tools),
+                    kook_write_actions=sorted(grant.kook_write_actions),
                 ),
                 tools=ops_tools(deps),
                 name="ops",

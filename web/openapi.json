@@ -1114,6 +1114,68 @@
         }
       }
     },
+    "/tools/ops": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Ops Tools Overview",
+        "description": "List all registered ops agent tools, global KOOK write whitelist, and global role authorization rules.",
+        "operationId": "get_ops_tools_overview",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsToolsOverviewOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Update Ops Tools Config",
+        "description": "Update global ``ops.kook_write_actions`` and/or ``ops.role_rules``.",
+        "operationId": "update_ops_tools_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpsToolsConfigIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsToolsOverviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tools": {
       "get": {
         "tags": [
@@ -5587,6 +5649,13 @@
             "type": "object",
             "title": "Defaults"
           },
+          "param_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ToolParamFieldOut"
+            },
+            "type": "array",
+            "title": "Param Fields"
+          },
           "extra_instructions": {
             "type": "string",
             "title": "Extra Instructions",
@@ -8579,6 +8648,199 @@
         "title": "OpsReply",
         "description": "Structured answer of the ops agent (``yggdrasil.ops.agent``)."
       },
+      "OpsRoleRule": {
+        "properties": {
+          "tools": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "status",
+                "get_settings",
+                "settings_reference",
+                "list_channels",
+                "list_routes",
+                "list_triggers",
+                "list_reviews",
+                "recent_invocations",
+                "list_events",
+                "kook_api",
+                "update_settings",
+                "set_channel",
+                "set_guild",
+                "sync_kook",
+                "backfill_channel",
+                "decide_review",
+                "save_trigger",
+                "delete_trigger",
+                "set_route",
+                "undo_last_change",
+                "recall_message"
+              ]
+            },
+            "type": "array",
+            "title": "Tools",
+            "description": "允许该 KOOK 角色通过管理助手（ops）调用的工具子集"
+          },
+          "kook_write_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kook Write Actions",
+            "description": "允许该角色通过 kook_api 调用的 KOOK 写接口路径（需同时授权 kook_api，且受全局 ops.kook_write_actions 与高危禁区限制）"
+          },
+          "guild_only": {
+            "type": "boolean",
+            "title": "Guild Only",
+            "description": "限制该角色仅能查询/操作当前所在服务器内的频道、设置与消息，禁止修改全局配置、其他服务器或提升自身 ops 权限",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "OpsRoleRule",
+        "description": "Per-KOOK-role authorization for the ops agent (keyed by KOOK role_id string)."
+      },
+      "OpsToolOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "status",
+              "get_settings",
+              "settings_reference",
+              "list_channels",
+              "list_routes",
+              "list_triggers",
+              "list_reviews",
+              "recent_invocations",
+              "list_events",
+              "kook_api",
+              "update_settings",
+              "set_channel",
+              "set_guild",
+              "sync_kook",
+              "backfill_channel",
+              "decide_review",
+              "save_trigger",
+              "delete_trigger",
+              "set_route",
+              "undo_last_change",
+              "recall_message"
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "read",
+              "config",
+              "kook",
+              "moderation"
+            ],
+            "title": "Category"
+          },
+          "write": {
+            "type": "boolean",
+            "title": "Write"
+          },
+          "global_only": {
+            "type": "boolean",
+            "title": "Global Only"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "category",
+          "write",
+          "global_only",
+          "description"
+        ],
+        "title": "OpsToolOut"
+      },
+      "OpsToolsConfigIn": {
+        "properties": {
+          "kook_write_actions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kook Write Actions"
+          },
+          "role_rules": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/OpsRoleRule"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Rules"
+          }
+        },
+        "type": "object",
+        "title": "OpsToolsConfigIn"
+      },
+      "OpsToolsOverviewOut": {
+        "properties": {
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/OpsToolOut"
+            },
+            "type": "array",
+            "title": "Tools"
+          },
+          "kook_write_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kook Write Actions"
+          },
+          "never_allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Never Allowed"
+          },
+          "role_rules": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OpsRoleRule"
+            },
+            "type": "object",
+            "title": "Role Rules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tools",
+          "kook_write_actions",
+          "never_allowed",
+          "role_rules"
+        ],
+        "title": "OpsToolsOverviewOut"
+      },
       "OutputPart": {
         "properties": {
           "type": {
@@ -11129,10 +11391,38 @@
             "type": "object",
             "title": "Defaults"
           },
+          "param_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ToolParamFieldOut"
+            },
+            "type": "array",
+            "title": "Param Fields"
+          },
           "supports_secret": {
             "type": "boolean",
             "title": "Supports Secret",
             "default": false
+          },
+          "secret_default_base_url": {
+            "type": "string",
+            "title": "Secret Default Base Url",
+            "default": ""
+          },
+          "secret_hint": {
+            "type": "string",
+            "title": "Secret Hint",
+            "default": ""
+          },
+          "provider_param_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Param Key"
           },
           "secret": {
             "anyOf": [
@@ -11159,6 +11449,83 @@
           "status_detail"
         ],
         "title": "ToolItemOut"
+      },
+      "ToolParamFieldOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "integer",
+              "number",
+              "boolean",
+              "string",
+              "enum"
+            ],
+            "title": "Type"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "default": {
+            "title": "Default"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "default": ""
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "title": "ToolParamFieldOut"
       },
       "ToolSecretIn": {
         "properties": {

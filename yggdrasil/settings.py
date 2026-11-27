@@ -395,6 +395,53 @@ class ToolSettings(BaseModel):
         return self
 
 
+OpsToolName = Literal[
+    "status",
+    "get_settings",
+    "settings_reference",
+    "list_channels",
+    "list_routes",
+    "list_triggers",
+    "list_reviews",
+    "recent_invocations",
+    "list_events",
+    "kook_api",
+    "update_settings",
+    "set_channel",
+    "set_guild",
+    "sync_kook",
+    "backfill_channel",
+    "decide_review",
+    "save_trigger",
+    "delete_trigger",
+    "set_route",
+    "undo_last_change",
+    "recall_message",
+]
+
+
+class OpsRoleRule(BaseModel):
+    """Per-KOOK-role authorization for the ops agent (keyed by KOOK role_id string)."""
+
+    tools: list[OpsToolName] = Field(
+        default_factory=list,
+        description="允许该 KOOK 角色通过管理助手（ops）调用的工具子集",
+    )
+    kook_write_actions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "允许该角色通过 kook_api 调用的 KOOK 写接口路径"
+            "（需同时授权 kook_api，且受全局 ops.kook_write_actions 与高危禁区限制）"
+        ),
+    )
+    guild_only: bool = Field(
+        default=True,
+        description=(
+            "限制该角色仅能查询/操作当前所在服务器内的频道、设置与消息，禁止修改全局配置、其他服务器或提升自身 ops 权限"
+        ),
+    )
+
+
 class OpsSettings(BaseModel):
     kook_write_actions: list[str] = Field(
         default_factory=lambda: [
@@ -412,6 +459,13 @@ class OpsSettings(BaseModel):
         ],
         description="管理助手（超级管理员）通过 kook_api 可以调用的 KOOK 写接口路径；GET 只读接口默认放行。"
         "退服（/guild/leave）与删服等高危接口始终禁止",
+    )
+    role_rules: dict[str, OpsRoleRule] = Field(
+        default_factory=dict,
+        description=(
+            "按 KOOK 角色 ID 授权调用部分管理助手（ops）工具"
+            "（支持按全局/服务器/分组/频道四级覆盖；超级管理员始终拥有全部权限）"
+        ),
     )
 
 

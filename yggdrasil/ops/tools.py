@@ -4,7 +4,7 @@ import json
 import re
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, Literal
@@ -35,11 +35,11 @@ from yggdrasil.db.models import (
 )
 from yggdrasil.db.session import get_session
 from yggdrasil.kook.client import Kook
-from yggdrasil.kook.model import KookError
+from yggdrasil.kook.model import Incoming, KookError
 from yggdrasil.kv import redis_client
 from yggdrasil.people import label, names_in_guilds, self_label
 from yggdrasil.runtime import snapshot
-from yggdrasil.settings import Settings
+from yggdrasil.settings import OpsToolName, Settings
 from yggdrasil.tools.errors import ToolError
 from yggdrasil.transcript.notes import TraceNotes
 
@@ -47,6 +47,30 @@ _UNDO_KEEP = 20
 _UNDO_TTL_S = 7 * 86400
 
 ScopeLevel = Literal["global", "guild", "category", "channel"]
+OpsToolCategory = Literal["read", "config", "kook", "moderation"]
+
+
+@dataclass(frozen=True, slots=True)
+class OpsGrant:
+    """Resolved ops permissions for one invocation (superuser or matched KOOK role rules)."""
+
+    is_superuser: bool
+    allowed_tools: frozenset[str]
+    kook_write_actions: frozenset[str]
+    guild_only: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OpsToolSpec:
+    """Declarative metadata for one ops agent tool (used by both runtime registration and dashboard UI)."""
+
+    id: OpsToolName
+    name: str
+    category: OpsToolCategory
+    write: bool
+    global_only: bool
+    description: str
+    fn: Callable[..., Awaitable[str]]
 
 
 @dataclass
@@ -63,6 +87,7 @@ class OpsDeps:
     channel_id: str | None
     guild_id: str | None = None
     quoted: QuotedMessage | None = None
+    grant: OpsGrant | None = None
     actions: list[str] = field(default_factory=list)
     tool_counts: Counter[str] = field(default_factory=Counter)
     notes: TraceNotes = field(default_factory=TraceNotes)
@@ -70,6 +95,45 @@ class OpsDeps:
     @property
     def actor(self) -> str:
         return f"kook:{self.user_id}"
+
+
+def _guild_only_id(deps: OpsDeps) -> str | None:
+    """Return the caller's locked ``guild_id`` when ``guild_only`` applies, else ``None``."""
+    if deps.grant is None or not deps.grant.guild_only:
+        return None
+    if not deps.guild_id:
+        raise ToolError("当前角色权限仅限在服务器频道内操作")
+    return deps.guild_id
+
+
+def _assert_not_guild_only(deps: OpsDeps, action: str) -> None:
+    if _guild_only_id(deps) is not None:
+        raise ToolError(f"当前角色权限仅限本服务器，不能执行「{action}」")
+
+
+def _assert_scope_in_guild(deps: OpsDeps, scope: str, scope_id: str | None) -> None:
+    gid = _guild_only_id(deps)
+    if gid is None:
+        return
+    if scope in ("global", "private"):
+        raise ToolError("当前角色权限仅限操作本服务器，不能访问或修改全局/私聊配置")
+    if not scope_id:
+        raise ToolError(f"{scope} 级操作必须提供 scope_id")
+    if scope == "guild":
+        if scope_id != gid:
+            raise ToolError("当前角色权限仅限操作当前所在服务器")
+        return
+    owner = snapshot().guild_of(scope_id)
+    if owner != gid:
+        raise ToolError("当前角色权限仅限操作当前所在服务器内的分组或频道")
+
+
+def _assert_channel_in_guild(deps: OpsDeps, channel_id: str) -> None:
+    gid = _guild_only_id(deps)
+    if gid is None:
+        return
+    if snapshot().guild_of(channel_id) != gid:
+        raise ToolError("当前角色权限仅限操作当前所在服务器内的频道")
 
 
 async def _labeler(
@@ -177,17 +241,21 @@ def merge_patch(doc: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 async def status(ctx: RunContext[OpsDeps]) -> str:
     """当前配置版本、服务器和启用频道数量、已配置的路由、待审核数量。"""
     snap = snapshot()
+    locked_gid = _guild_only_id(ctx.deps)
     async with get_session() as s:
-        pending = await s.scalar(select(func.count()).select_from(ReviewItem).where(ReviewItem.status == "pending"))
+        q = select(func.count()).select_from(ReviewItem).where(ReviewItem.status == "pending")
+        if locked_gid is not None:
+            q = q.where(ReviewItem.guild_id == locked_gid)
+        pending = await s.scalar(q)
     enabled = [
         f"#{c.name}({c.channel_id})"
         for c in snap.channels.values()
-        if not c.is_category and snap.channel_enabled(c.channel_id)
+        if not c.is_category and snap.channel_enabled(c.channel_id) and (locked_gid is None or c.guild_id == locked_gid)
     ]
     return _json(
         {
             "config_version": snap.version,
-            "guilds": len(snap.guilds),
+            "guilds": 1 if locked_gid is not None else len(snap.guilds),
             "enabled_channels": enabled,
             "routes": sorted(snap.routes),
             "pending_reviews": pending,
@@ -203,6 +271,7 @@ async def get_settings(
     section: str | None = None,
 ) -> str:
     """查看四级设置（global / guild / category / channel）。section 指定一节时额外返回生效值。"""
+    _assert_scope_in_guild(ctx.deps, scope, scope_id)
     if scope == "global":
         view = await settings_api.get_global_settings()
     else:
@@ -240,7 +309,10 @@ async def settings_reference(ctx: RunContext[OpsDeps], section: str) -> str:
 @_op("list_channels")
 async def list_channels(ctx: RunContext[OpsDeps]) -> str:
     """查看所有服务器 → 分组 → 频道树结构、启用状态与覆盖摘要。"""
+    locked_gid = _guild_only_id(ctx.deps)
     tree = await channels_api.get_channel_tree()
+    if locked_gid is not None:
+        tree = [g for g in tree if g.guild.guild_id == locked_gid]
     return _json(
         [
             {
@@ -303,7 +375,16 @@ async def list_routes(ctx: RunContext[OpsDeps]) -> str:
 @_op("list_triggers")
 async def list_triggers(ctx: RunContext[OpsDeps]) -> str:
     """所有触发规则（id、handler、scope、scope_id、匹配方式、关键词、优先级、是否启用）。"""
+    locked_gid = _guild_only_id(ctx.deps)
     rows = await triggers_api.list_triggers()
+    if locked_gid is not None:
+        snap = snapshot()
+        rows = [
+            t
+            for t in rows
+            if (t.scope == "guild" and t.scope_id == locked_gid)
+            or (t.scope in ("category", "channel") and t.scope_id and snap.guild_of(t.scope_id) == locked_gid)
+        ]
     return _json(
         [
             t.model_dump(
@@ -330,7 +411,9 @@ async def list_reviews(
     ctx: RunContext[OpsDeps], status: Literal["pending", "approved", "rejected", "expired"] = "pending"
 ) -> str:
     """审核队列（默认只看待审核）：R 号、频道、请求、候选回复开头、审核结果。"""
+    locked_gid = _guild_only_id(ctx.deps)
     page = await reviews_api.list_reviews(status=status, limit=20, offset=0)
+    items = [r for r in page.items if locked_gid is None or r.guild_id == locked_gid]
     return _json(
         [
             {
@@ -341,7 +424,7 @@ async def list_reviews(
                 "reply": " ".join(s.content for s in r.reply.sections)[:200],
                 "verdict": r.verdict.model_dump(include={"verdict", "score", "categories"}),
             }
-            for r in page.items
+            for r in items
         ]
     )
 
@@ -349,10 +432,12 @@ async def list_reviews(
 @_op("recent_invocations")
 async def recent_invocations(ctx: RunContext[OpsDeps], limit: int = 10) -> str:
     """最近的调用记录：时间、频道、触发人、handler、状态、耗时、错误。"""
+    locked_gid = _guild_only_id(ctx.deps)
     async with get_session() as s:
-        rows = (
-            await s.scalars(select(Invocation).order_by(Invocation.created_at.desc()).limit(min(max(limit, 1), 30)))
-        ).all()
+        q = select(Invocation).order_by(Invocation.created_at.desc()).limit(min(max(limit, 1), 30))
+        if locked_gid is not None:
+            q = q.where(Invocation.guild_id == locked_gid)
+        rows = (await s.scalars(q)).all()
     who = await _labeler(ctx, [(i.guild_id, i.user_id) for i in rows])
     return _json(
         [
@@ -382,6 +467,9 @@ async def update_settings(
     scope_id: str | None = None,
 ) -> str:
     """修改四级设置（global / guild / category / channel）。值写 null 表示删除该层覆盖恢复继承上级。"""
+    _assert_scope_in_guild(ctx.deps, scope, scope_id)
+    if ctx.deps.grant is not None and not ctx.deps.grant.is_superuser and "ops" in patch:
+        raise ToolError("非超级管理员不能通过 update_settings 修改 ops 权限配置")
     if scope == "global":
         before = await settings_api.global_doc()
         after = merge_patch(before, patch)
@@ -413,6 +501,7 @@ async def set_channel(
     guild_id: str | None = None,
 ) -> str:
     """启用或停用某个频道/分组（clear_enabled=True 表示设为 null 继承所属分组）。"""
+    locked_gid = _guild_only_id(ctx.deps)
     async with get_session() as s:
         ch = await s.get(Channel, channel_id)
         prev = (
@@ -431,6 +520,9 @@ async def set_channel(
         )
     if prev is None and not guild_id:
         raise ToolError(f"频道 {channel_id} 不在列表里，请先执行 sync_kook 或传入 guild_id")
+    target_gid = guild_id or (prev or {})["guild_id"]
+    if locked_gid is not None and target_gid != locked_gid:
+        raise ToolError("当前角色权限仅限操作当前所在服务器内的频道")
     next_enabled = None if clear_enabled else (enabled if enabled is not None else (prev or {}).get("enabled"))
     body = channels_api.ChannelIn(
         guild_id=guild_id or (prev or {})["guild_id"],
@@ -454,6 +546,7 @@ async def set_guild(
     ctx: RunContext[OpsDeps], guild_id: str, enabled: bool | None = None, name: str | None = None
 ) -> str:
     """启用或停用整个 KOOK 服务器。"""
+    _assert_scope_in_guild(ctx.deps, "guild", guild_id)
     async with get_session() as s:
         g = await s.get(Guild, guild_id)
         prev = {"name": g.name, "icon": g.icon, "enabled": g.enabled} if g else None
@@ -471,6 +564,7 @@ async def set_guild(
 @_op("sync_kook", write=True)
 async def sync_kook(ctx: RunContext[OpsDeps]) -> str:
     """从 KOOK 同步所有服务器、分组和文字频道到数据库（保留已有设置与开关）。"""
+    _assert_not_guild_only(ctx.deps, "sync_kook")
     res = await kook_api_admin.sync_kook_structure(ctx.deps.actor)
     return f"已同步 {res.guilds} 个服务器、{res.categories} 个分组、{res.channels} 个文字频道"
 
@@ -478,6 +572,7 @@ async def sync_kook(ctx: RunContext[OpsDeps]) -> str:
 @_op("backfill_channel", write=True)
 async def backfill_channel(ctx: RunContext[OpsDeps], channel_id: str) -> str:
     """回填一个文字频道的历史消息（后台进行）。不能撤销。"""
+    _assert_channel_in_guild(ctx.deps, channel_id)
     await channels_api.backfill_channel(channel_id, ctx.deps.actor)
     return f"已开始回填频道 {channel_id}"
 
@@ -490,13 +585,20 @@ async def decide_review(
     text: str | None = None,
 ) -> str:
     """处理审核：approve 通过并发送原回复，reject 拒绝，edit 把 text 作为回复发出。不能撤销。"""
+    locked_gid = _guild_only_id(ctx.deps)
     if review_id is None and ctx.deps.quoted and (m := re.search(r"R(\d+)", ctx.deps.quoted.text)):
         review_id = int(m.group(1))
     if review_id is None:
-        page = await reviews_api.list_reviews(status="pending", limit=5, offset=0)
-        if page.total != 1:
-            raise ToolError(f"待审核有 {page.total} 条，请说明是哪一条（R 号）")
-        review_id = page.items[0].id
+        page = await reviews_api.list_reviews(status="pending", limit=20, offset=0)
+        candidates = [r for r in page.items if locked_gid is None or r.guild_id == locked_gid]
+        if len(candidates) != 1:
+            raise ToolError(f"待审核有 {len(candidates)} 条，请说明是哪一条（R 号）")
+        review_id = candidates[0].id
+    elif locked_gid is not None:
+        async with get_session() as s:
+            item = await s.get(ReviewItem, review_id)
+        if item is None or item.guild_id != locked_gid:
+            raise ToolError(f"审核项 R{review_id} 不存在或不属于当前服务器")
     out = await reviews_api.decide_review(review_id, reviews_api.DecideIn(action=action, text=text), ctx.deps.actor)
     return f"R{out.id} → {out.status}"
 
@@ -508,12 +610,18 @@ class TriggerSpec(triggers_api.TriggerIn):
 @_op("save_trigger", write=True)
 async def save_trigger(ctx: RunContext[OpsDeps], trigger: TriggerSpec, trigger_id: int | None = None) -> str:
     """新增（trigger_id 为空）或修改一条触发规则。修改时传完整规则。"""
+    _assert_scope_in_guild(ctx.deps, trigger.scope, trigger.scope_id)
+    if ctx.deps.grant is not None and not ctx.deps.grant.is_superuser and trigger.handler.startswith("admin."):
+        raise ToolError("非超级管理员不能创建或修改 admin.* 管理触发规则")
     prev = None
     if trigger_id is not None:
         async with get_session() as s:
             row = await s.get(CommandTrigger, trigger_id)
             if row is None:
                 raise ToolError(f"规则 {trigger_id} 不存在")
+            _assert_scope_in_guild(ctx.deps, row.scope, row.scope_id)
+            if ctx.deps.grant is not None and not ctx.deps.grant.is_superuser and row.handler.startswith("admin."):
+                raise ToolError("非超级管理员不能修改 admin.* 管理触发规则")
             prev = triggers_api.TriggerIn.model_validate(row, from_attributes=True).model_dump()
         out = await triggers_api.update_trigger(trigger_id, trigger, ctx.deps.actor)
     else:
@@ -529,6 +637,9 @@ async def delete_trigger(ctx: RunContext[OpsDeps], trigger_id: int) -> str:
         row = await s.get(CommandTrigger, trigger_id)
         if row is None:
             raise ToolError(f"规则 {trigger_id} 不存在")
+        _assert_scope_in_guild(ctx.deps, row.scope, row.scope_id)
+        if ctx.deps.grant is not None and not ctx.deps.grant.is_superuser and row.handler.startswith("admin."):
+            raise ToolError("非超级管理员不能删除 admin.* 管理触发规则")
         prev = triggers_api.TriggerIn.model_validate(row, from_attributes=True).model_dump()
     await triggers_api.delete_trigger(trigger_id, ctx.deps.actor)
     await _push_undo(ctx.deps, f"删除规则 {trigger_id}", {"kind": "trigger", "id": None, "prev": prev})
@@ -553,6 +664,7 @@ async def set_route(
     fallback_model: str | None = None,
 ) -> str:
     """更换某个任务的模型（provider 用名称）。"""
+    _assert_not_guild_only(ctx.deps, "set_route")
     async with get_session() as s:
         row = await s.get(TaskRoute, task)
         prev = (
@@ -636,12 +748,14 @@ async def list_events(
     limit: int = 20,
 ) -> str:
     """bot 记录的 KOOK 系统事件（服务器/频道变动等）。"""
+    locked_gid = _guild_only_id(ctx.deps)
+    effective_gid = locked_gid if locked_gid is not None else guild_id
     async with get_session() as s:
         q = select(BotEvent).order_by(BotEvent.at.desc()).limit(min(max(limit, 1), 50))
         if kind:
             q = q.where(BotEvent.kind.startswith(kind))
-        if guild_id:
-            q = q.where(BotEvent.guild_id == guild_id)
+        if effective_gid:
+            q = q.where(BotEvent.guild_id == effective_gid)
         rows = (await s.scalars(q)).all()
     who = await _labeler(ctx, [(e.guild_id, u) for e in rows for u in (e.user_id, e.operator_id)])
     return _json(
@@ -665,7 +779,7 @@ _KOOK_NEVER = frozenset({"/guild/leave", "/guild/delete", "/user/offline"})
 _KOOK_MAX_CHARS = 8000
 
 
-def kook_gate(method: str, path: str, write_allowed: list[str]) -> bool:
+def kook_gate(method: str, path: str, write_allowed: Collection[str]) -> bool:
     """Return True if ``(method, path)`` is an allowed write, False if read; raise ToolError otherwise."""
     m = method.upper().strip()
     p = "/" + path.strip().lstrip("/")
@@ -676,8 +790,27 @@ def kook_gate(method: str, path: str, write_allowed: list[str]) -> bool:
     if m != "POST":
         raise ToolError(f"KOOK API 只支持 GET 或 POST，不支持 {m}")
     if p not in write_allowed:
-        raise ToolError(f"{p} 不在允许的写接口里（设置 ops.kook_write_actions）")
+        raise ToolError(f"{p} 不在允许的写接口里（设置 ops.kook_write_actions 或角色授权）")
     return True
+
+
+def _assert_kook_write_in_guild(deps: OpsDeps, path: str, params: dict[str, Any]) -> None:
+    """Prevent a guild-scoped role from targeting another guild or sending cross-guild DMs via ``kook_api``."""
+    gid = _guild_only_id(deps)
+    if gid is None:
+        return
+    if path.startswith("/direct-message/"):
+        raise ToolError("当前角色权限仅限操作本服务器，不能调用私聊写接口")
+    if (p_gid := params.get("guild_id")) is not None and str(p_gid).strip() != gid:
+        raise ToolError("当前角色权限仅限操作当前所在服务器（guild_id 不匹配）")
+    for key in ("channel_id", "target_id"):
+        val = params.get(key)
+        if val is not None and str(val).strip():
+            owner = snapshot().guild_of(str(val).strip())
+            if owner != gid:
+                raise ToolError(f"当前角色权限仅限操作当前所在服务器内的频道（{key} 不属于本服务器）")
+    if path.startswith(("/guild/", "/guild-mute/", "/guild-role/")) and "guild_id" not in params:
+        params["guild_id"] = gid
 
 
 @_op("kook_api")
@@ -688,10 +821,17 @@ async def kook_api(
     params: dict[str, Any] | None = None,
 ) -> str:
     """直接调用 KOOK API v3 接口（例如 GET /guild/list、GET /channel/list、POST /message/pin）。
-    GET 只读接口默认放行；POST 写接口只能调 ops.kook_write_actions 列出的路径，记入审计且不可撤销。"""
+    GET 只读接口默认放行；POST 写接口只能调当前获授权的路径，记入审计且不可撤销。"""
     p = "/" + path.strip().lstrip("/")
-    write = kook_gate(method, p, snapshot().settings().ops.kook_write_actions)
-    params = params or {}
+    allowed_writes: Collection[str] = (
+        ctx.deps.grant.kook_write_actions
+        if ctx.deps.grant is not None
+        else snapshot().settings().ops.kook_write_actions
+    )
+    write = kook_gate(method, p, allowed_writes)
+    params = dict(params or {})
+    if write:
+        _assert_kook_write_in_guild(ctx.deps, p, params)
     result = await ctx.deps.kook.call(method, p, params)
     if write:
         async with get_session() as s:
@@ -703,34 +843,190 @@ async def kook_api(
     return text
 
 
-_READ: tuple[Callable[..., Awaitable[str]], ...] = (
-    status,
-    get_settings,
-    settings_reference,
-    list_channels,
-    list_routes,
-    list_triggers,
-    list_reviews,
-    recent_invocations,
-    kook_api,
-    list_events,
+OPS_TOOL_SPECS: tuple[OpsToolSpec, ...] = (
+    OpsToolSpec("status", "运行状态总览", "read", False, False, "查看配置版本、启用频道、已配路由与待审核数。", status),
+    OpsToolSpec("get_settings", "查看设置", "read", False, False, "查询四级配置与生效值。", get_settings),
+    OpsToolSpec(
+        "settings_reference",
+        "设置字段字典",
+        "read",
+        False,
+        False,
+        "查询任意设置节的字段名、类型与默认值。",
+        settings_reference,
+    ),
+    OpsToolSpec(
+        "list_channels", "频道树列表", "read", False, False, "查看服务器 → 分组 → 频道结构与开关状态。", list_channels
+    ),
+    OpsToolSpec(
+        "list_routes", "模型路由列表", "read", False, True, "查看全部任务的模型路由与可用模型列表。", list_routes
+    ),
+    OpsToolSpec(
+        "list_triggers", "指令规则列表", "read", False, False, "查看触发规则及其作用范围与优先级。", list_triggers
+    ),
+    OpsToolSpec(
+        "list_reviews",
+        "审核队列列表",
+        "read",
+        False,
+        False,
+        "查看待审核或历史审核项（R 号、内容与判果）。",
+        list_reviews,
+    ),
+    OpsToolSpec(
+        "recent_invocations",
+        "近期调用记录",
+        "read",
+        False,
+        False,
+        "查看近期触发时间、耗时、状态与报错。",
+        recent_invocations,
+    ),
+    OpsToolSpec(
+        "list_events", "系统事件记录", "read", False, False, "查看服务器/频道变更等系统事件日志。", list_events
+    ),
+    OpsToolSpec(
+        "kook_api",
+        "KOOK API 直连",
+        "kook",
+        False,
+        False,
+        "调用 KOOK API v3（GET 只读放行，POST 受写白名单限制）。",
+        kook_api,
+    ),
+    OpsToolSpec(
+        "update_settings",
+        "修改四级设置",
+        "config",
+        True,
+        False,
+        "修改指定范围的配置覆盖（非超管禁止改 ops 节）。",
+        update_settings,
+    ),
+    OpsToolSpec(
+        "set_channel", "开关频道/分组", "config", True, False, "启用、停用或恢复继承某个频道/分组。", set_channel
+    ),
+    OpsToolSpec("set_guild", "开关服务器", "config", True, False, "启用或停用服务器总开关。", set_guild),
+    OpsToolSpec(
+        "sync_kook",
+        "同步 KOOK 结构",
+        "config",
+        True,
+        True,
+        "全量拉取所有服务器与频道结构到数据库（全局操作）。",
+        sync_kook,
+    ),
+    OpsToolSpec(
+        "backfill_channel",
+        "回填频道历史",
+        "config",
+        True,
+        False,
+        "在后台回填指定频道的历史聊天消息。",
+        backfill_channel,
+    ),
+    OpsToolSpec(
+        "decide_review", "处理审核队列", "moderation", True, False, "批准、拒绝或编辑后发送待审核回复。", decide_review
+    ),
+    OpsToolSpec(
+        "save_trigger",
+        "增改指令规则",
+        "config",
+        True,
+        False,
+        "新增或修改触发规则（非超管禁止动 admin.* 规则）。",
+        save_trigger,
+    ),
+    OpsToolSpec(
+        "delete_trigger",
+        "删除指令规则",
+        "config",
+        True,
+        False,
+        "删除触发规则（非超管禁止动 admin.* 规则）。",
+        delete_trigger,
+    ),
+    OpsToolSpec("set_route", "更换模型路由", "config", True, True, "修改全局任务模型路由（全局操作）。", set_route),
+    OpsToolSpec(
+        "undo_last_change",
+        "撤销上次修改",
+        "config",
+        True,
+        False,
+        "撤销本人最近一次通过 ops 对话做的配置修改。",
+        undo_last_change,
+    ),
+    OpsToolSpec(
+        "recall_message",
+        "撤回机器人消息",
+        "moderation",
+        True,
+        False,
+        "撤回/删除被回复的那条机器人消息。",
+        recall_message,
+    ),
 )
-_WRITE: tuple[Callable[..., Awaitable[str]], ...] = (
-    update_settings,
-    set_channel,
-    set_guild,
-    sync_kook,
-    backfill_channel,
-    decide_review,
-    save_trigger,
-    delete_trigger,
-    set_route,
-    undo_last_change,
+
+ALL_OPS_TOOL_NAMES: frozenset[str] = frozenset(spec.id for spec in OPS_TOOL_SPECS)
+_GLOBAL_ONLY_OPS_TOOLS: frozenset[str] = frozenset(spec.id for spec in OPS_TOOL_SPECS if spec.global_only)
+
+
+def resolve_ops_grant(settings: Settings, incoming: Incoming, superusers: Collection[str]) -> OpsGrant | None:
+    """Resolve whether ``incoming`` may invoke the ops agent, and which tools/actions are granted."""
+    global_writes = (
+        frozenset("/" + p.strip().lstrip("/") for p in settings.ops.kook_write_actions if p.strip()) - _KOOK_NEVER
+    )
+
+    if incoming.user_id in superusers:
+        return OpsGrant(
+            is_superuser=True,
+            allowed_tools=ALL_OPS_TOOL_NAMES,
+            kook_write_actions=global_writes,
+            guild_only=False,
+        )
+
+    rules = settings.ops.role_rules
+    if not rules or not incoming.sender.role_ids:
+        return None
+    matched = [rules[str(rid)] for rid in incoming.sender.role_ids if str(rid) in rules]
+    if not matched:
+        return None
+
+    guild_only = all(r.guild_only for r in matched)
+    if guild_only and incoming.channel_id is None:
+        return None
+
+    allowed: set[str] = set()
+    role_writes: set[str] = set()
+    for r in matched:
+        allowed.update(t for t in r.tools if t in ALL_OPS_TOOL_NAMES)
+        role_writes.update("/" + p.strip().lstrip("/") for p in r.kook_write_actions if p.strip())
+    if guild_only:
+        allowed -= _GLOBAL_ONLY_OPS_TOOLS
+    if not allowed:
+        return None
+
+    return OpsGrant(
+        is_superuser=False,
+        allowed_tools=frozenset(allowed),
+        kook_write_actions=frozenset(role_writes) & global_writes,
+        guild_only=guild_only,
+    )
+
+
+_READ: tuple[Callable[..., Awaitable[str]], ...] = tuple(s.fn for s in OPS_TOOL_SPECS if not s.write)
+_WRITE: tuple[Callable[..., Awaitable[str]], ...] = tuple(
+    s.fn for s in OPS_TOOL_SPECS if s.write and s.id != "recall_message"
 )
 
 
 def ops_tools(deps: OpsDeps) -> list[Tool[OpsDeps]]:
-    tools: list[Tool[OpsDeps]] = [Tool(fn, takes_ctx=True) for fn in (*_READ, *_WRITE)]
-    if deps.quoted is not None and deps.quoted.is_self:
-        tools.append(Tool(recall_message, takes_ctx=True))
+    allowed = deps.grant.allowed_tools if deps.grant is not None else ALL_OPS_TOOL_NAMES
+    tools: list[Tool[OpsDeps]] = []
+    for spec in OPS_TOOL_SPECS:
+        if spec.id not in allowed:
+            continue
+        if spec.id == "recall_message" and (deps.quoted is None or not deps.quoted.is_self):
+            continue
+        tools.append(Tool(spec.fn, takes_ctx=True))
     return tools

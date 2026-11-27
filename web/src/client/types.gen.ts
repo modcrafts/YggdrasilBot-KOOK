@@ -312,6 +312,10 @@ export type BuiltinSkillOut = {
         [key: string]: unknown;
     };
     /**
+     * Param Fields
+     */
+    param_fields?: Array<ToolParamFieldOut>;
+    /**
      * Extra Instructions
      */
     extra_instructions?: string;
@@ -2037,6 +2041,102 @@ export type OpsReply = {
 };
 
 /**
+ * OpsRoleRule
+ *
+ * Per-KOOK-role authorization for the ops agent (keyed by KOOK role_id string).
+ */
+export type OpsRoleRule = {
+    /**
+     * Tools
+     *
+     * 允许该 KOOK 角色通过管理助手（ops）调用的工具子集
+     */
+    tools?: Array<'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message'>;
+    /**
+     * Kook Write Actions
+     *
+     * 允许该角色通过 kook_api 调用的 KOOK 写接口路径（需同时授权 kook_api，且受全局 ops.kook_write_actions 与高危禁区限制）
+     */
+    kook_write_actions?: Array<string>;
+    /**
+     * Guild Only
+     *
+     * 限制该角色仅能查询/操作当前所在服务器内的频道、设置与消息，禁止修改全局配置、其他服务器或提升自身 ops 权限
+     */
+    guild_only?: boolean;
+};
+
+/**
+ * OpsToolOut
+ */
+export type OpsToolOut = {
+    /**
+     * Id
+     */
+    id: 'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message';
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Category
+     */
+    category: 'read' | 'config' | 'kook' | 'moderation';
+    /**
+     * Write
+     */
+    write: boolean;
+    /**
+     * Global Only
+     */
+    global_only: boolean;
+    /**
+     * Description
+     */
+    description: string;
+};
+
+/**
+ * OpsToolsConfigIn
+ */
+export type OpsToolsConfigIn = {
+    /**
+     * Kook Write Actions
+     */
+    kook_write_actions?: Array<string> | null;
+    /**
+     * Role Rules
+     */
+    role_rules?: {
+        [key: string]: OpsRoleRule;
+    } | null;
+};
+
+/**
+ * OpsToolsOverviewOut
+ */
+export type OpsToolsOverviewOut = {
+    /**
+     * Tools
+     */
+    tools: Array<OpsToolOut>;
+    /**
+     * Kook Write Actions
+     */
+    kook_write_actions: Array<string>;
+    /**
+     * Never Allowed
+     */
+    never_allowed: Array<string>;
+    /**
+     * Role Rules
+     */
+    role_rules: {
+        [key: string]: OpsRoleRule;
+    };
+};
+
+/**
  * OutputPart
  */
 export type OutputPart = {
@@ -3619,10 +3719,72 @@ export type ToolItemOut = {
         [key: string]: unknown;
     };
     /**
+     * Param Fields
+     */
+    param_fields?: Array<ToolParamFieldOut>;
+    /**
      * Supports Secret
      */
     supports_secret?: boolean;
+    /**
+     * Secret Default Base Url
+     */
+    secret_default_base_url?: string;
+    /**
+     * Secret Hint
+     */
+    secret_hint?: string;
+    /**
+     * Provider Param Key
+     */
+    provider_param_key?: string | null;
     secret?: ToolSecretOut | null;
+};
+
+/**
+ * ToolParamFieldOut
+ */
+export type ToolParamFieldOut = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Type
+     */
+    type: 'integer' | 'number' | 'boolean' | 'string' | 'enum';
+    /**
+     * Description
+     */
+    description?: string;
+    /**
+     * Default
+     */
+    default?: unknown;
+    /**
+     * Minimum
+     */
+    minimum?: number | null;
+    /**
+     * Maximum
+     */
+    maximum?: number | null;
+    /**
+     * Options
+     */
+    options?: Array<string>;
+    /**
+     * Unit
+     */
+    unit?: string;
+    /**
+     * Group
+     */
+    group?: string;
 };
 
 /**
@@ -4891,6 +5053,47 @@ export type PutScopeSettingsResponses = {
 };
 
 export type PutScopeSettingsResponse = PutScopeSettingsResponses[keyof PutScopeSettingsResponses];
+
+export type GetOpsToolsOverviewData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/tools/ops';
+};
+
+export type GetOpsToolsOverviewResponses = {
+    /**
+     * Successful Response
+     */
+    200: OpsToolsOverviewOut;
+};
+
+export type GetOpsToolsOverviewResponse = GetOpsToolsOverviewResponses[keyof GetOpsToolsOverviewResponses];
+
+export type UpdateOpsToolsConfigData = {
+    body: OpsToolsConfigIn;
+    path?: never;
+    query?: never;
+    url: '/tools/ops';
+};
+
+export type UpdateOpsToolsConfigErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateOpsToolsConfigError = UpdateOpsToolsConfigErrors[keyof UpdateOpsToolsConfigErrors];
+
+export type UpdateOpsToolsConfigResponses = {
+    /**
+     * Successful Response
+     */
+    200: OpsToolsOverviewOut;
+};
+
+export type UpdateOpsToolsConfigResponse = UpdateOpsToolsConfigResponses[keyof UpdateOpsToolsConfigResponses];
 
 export type GetToolsOverviewData = {
     body?: never;
