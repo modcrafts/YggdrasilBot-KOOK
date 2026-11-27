@@ -23,7 +23,9 @@ async def read_file(ctx: RunContext[Deps], handle: str) -> ToolResult:
     blob, name = await media_bytes(h, cfg.file_max_mb * 1024 * 1024, made=deps.made_images)
     if is_image(blob):
         return await _show_image(ctx, handle, h, await asyncio.to_thread(model_image, blob), "")
-    doc = await asyncio.to_thread(parse_document, blob, name, max_pages=cfg.file_max_pages)
+    doc = await asyncio.to_thread(
+        parse_document, blob, name, max_pages=cfg.file_max_pages, max_chars=cfg.file_max_chars
+    )
     note = "（内容已截断）" if doc.truncated else ""
     header = f"文件：{name}（{doc.kind}，{doc.pages} 页）{note}"
     if doc.scanned_pages and _hands_images(deps):
@@ -65,7 +67,7 @@ async def check_provenance(ctx: RunContext[Deps], handle: str) -> str:
 
     h = await resolve_ref(ctx, handle, "image", "file")
     deps, cfg = ctx.deps, ctx.deps.settings.tools
-    max_bytes = min(cfg.file_max_mb * 1024 * 1024, PROVENANCE_MAX_BYTES)
+    max_bytes = min(cfg.file_max_mb * 1024 * 1024, cfg.provenance_max_mb * 1024 * 1024, PROVENANCE_MAX_BYTES)
     blob, name = await media_bytes(h, max_bytes, made=deps.made_images)
     mime = media_type(blob) if is_image(blob) else ""
     try:
@@ -74,6 +76,8 @@ async def check_provenance(ctx: RunContext[Deps], handle: str) -> str:
             name or "file.bin",
             mime=mime,
             provider_ref=cfg.provenance_provider,
+            timeout_s=float(cfg.provenance_timeout_s),
+            max_bytes=max_bytes,
         )
     except ProvenanceError as e:
         raise ToolError(str(e)) from e

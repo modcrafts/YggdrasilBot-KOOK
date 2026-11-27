@@ -97,8 +97,9 @@ async def get_messages_around(ctx: RunContext[Deps], message_id: int, before: in
     if not ctx.deps.guild_id:
         raise ToolError("私聊里不能检索服务器历史")
     allowed = accessible_channels(ctx.deps.guild_id, ctx.deps.channel_id, role_ids=ctx.deps.role_ids)
+    max_around = ctx.deps.settings.tools.messages_around_max
     source_ch, msgs = await messages_around(
-        ctx.deps.guild_id, message_id, min(before, 40), min(after, 40), allowed_channels=allowed
+        ctx.deps.guild_id, message_id, min(before, max_around), min(after, max_around), allowed_channels=allowed
     )
     if not source_ch or not msgs:
         return "无"
@@ -163,7 +164,7 @@ async def lookup_glossary(ctx: RunContext[Deps], term: str) -> str:
         names = sorted((f"{t.term}（{'、'.join(t.aliases)}）" if t.aliases else t.term for t in entries), key=str.lower)
         if not names:
             return "本服务器词典还是空的"
-        shown = names[:GLOSSARY_LIST_MAX]
+        shown = names[: ctx.deps.settings.tools.glossary_list_max]
         more = f"\n（共 {len(names)} 条，只列出前 {len(shown)} 条）" if len(names) > len(shown) else ""
         return f"本服务器词典的词条（查释义时传入词条名）：\n{'、'.join(shown)}{more}"
     terms = await _lookup(ctx.deps.guild_id, term)

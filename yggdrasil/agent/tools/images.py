@@ -83,8 +83,16 @@ async def show_image(deps: Deps, blob: bytes, caption: str, *, call_id: str | No
 async def _render(ctx: RunContext[Deps], kind: renderer.Kind, source: str, caption: str) -> str:
     if not APP_CONFIG.render_url:
         raise ToolError("没有配置渲染服务")
-    wanted = MAX_IMAGES if kind == "markdown" else 1
-    pngs, warnings = await renderer.render(kind, source, base_url=APP_CONFIG.render_url, max_images=wanted)
+    cfg = ctx.deps.settings.tools
+    wanted = cfg.render_markdown_max_pages if kind == "markdown" else 1
+    pngs, warnings = await renderer.render(
+        kind,
+        source,
+        base_url=APP_CONFIG.render_url,
+        max_images=wanted,
+        max_source_chars=cfg.render_max_source_chars,
+        timeout_s=float(cfg.render_timeout_s),
+    )
     caption = caption.strip()
     pages = [
         (png, caption if i == 1 else (f"{caption}（{i}/{len(pngs)}）" if caption else ""))
@@ -185,8 +193,9 @@ async def generate_image(
 ) -> str:
     """画图：按描述生成一张图，或参照聊天里的图改图。画好后直接发送到当前频道；没有别的要说就选 mode=done。"""
     deps = ctx.deps
-    if len(references or []) > MAX_REFERENCES:
-        raise ToolError(f"参考图最多 {MAX_REFERENCES} 张")
+    max_refs = deps.settings.tools.generate_image_max_references
+    if len(references or []) > max_refs:
+        raise ToolError(f"参考图最多 {max_refs} 张")
     refs: list[tuple[bytes, str]] = []
     for ref in references or []:
         h = await resolve_ref(ctx, ref, "image", "file")

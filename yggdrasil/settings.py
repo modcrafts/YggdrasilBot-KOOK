@@ -315,23 +315,53 @@ class ToolSettings(BaseModel):
         ],
         description="耗时工具：回复末尾的元数据里显示它们的累计耗时",
     )
-    read_url_max_chars: int = 16000
-    browser_fallback: bool = True
+    read_url_max_chars: int = Field(default=16000, ge=1000, le=100_000, description="read_url / read_x 单页最大字符数")
+    browser_fallback: bool = Field(
+        default=True, description="read_url 遇到验证页或 JS 渲染页时自动切换浏览器抓取（需配置 YGG_BROWSER_URL）"
+    )
     remote_fetch: bool = Field(
         default=True,
         description="read_url 在本地抓取和浏览器都读不到时，交给 DeepSeek 远程抓取",
     )
-    file_max_mb: int = 30
-    file_max_pages: int = 40
+    file_max_mb: int = Field(default=30, ge=1, le=100, description="附件下载大小上限（MB）")
+    file_max_pages: int = Field(default=40, ge=1, le=200, description="PDF 最大解析页数")
+    file_max_chars: int = Field(default=60000, ge=2000, le=200_000, description="read_file 提取正文最大字符数")
     provenance_provider: str = Field(
         default="",
         description="OpenAI Content Provenance 检测（check_provenance）使用的提供商名称或 ID；"
-        "留空时自动匹配控制台里指向 api.openai.com 的提供商，或回退到环境变量 OPENAI_API_KEY",
+        "留空时优先使用工具独立凭据，其次自动匹配控制台里指向 api.openai.com 的提供商，或回退到环境变量 OPENAI_API_KEY",
     )
-    search_results: int = 6
-    history_top_k: int = 12
-    request_limit: int = 12
-    tool_calls_limit: int = 16
+    provenance_timeout_s: int = Field(default=30, ge=5, le=120, description="check_provenance 请求超时时间（秒）")
+    provenance_max_mb: int = Field(
+        default=25, ge=1, le=25, description="check_provenance 单文件上传大小上限（MB，OpenAI 上限 25MB）"
+    )
+    search_results: int = Field(default=6, ge=1, le=20, description="web_search / search_x 默认返回结果数")
+    search_x_default_hours: int = Field(
+        default=24, ge=1, le=720, description="search_x 未指定时间范围时的默认回溯小时数"
+    )
+    history_top_k: int = Field(default=12, ge=1, le=50, description="search_history 单次检索返回条数")
+    messages_around_max: int = Field(
+        default=40, ge=5, le=100, description="get_messages_around 前/后各自最多拉取的消息条数"
+    )
+    glossary_list_max: int = Field(
+        default=200, ge=10, le=1000, description="lookup_glossary 列出全部词条时的最大返回数"
+    )
+    render_max_source_chars: int = Field(default=20000, ge=1000, le=100_000, description="render_* 输入源码最大字符数")
+    render_timeout_s: int = Field(default=30, ge=5, le=120, description="render_* 渲染请求超时时间（秒）")
+    render_markdown_max_pages: int = Field(default=4, ge=1, le=8, description="render_markdown 单次最多渲染页数")
+    generate_image_max_references: int = Field(
+        default=4, ge=0, le=10, description="generate_image 单次最多允许传入的参考图张数"
+    )
+    kook_upload_max_mb: int = Field(default=20, ge=1, le=50, description="kook 技能 upload_file 单文件上传上限（MB）")
+    kook_pinned_shown: int = Field(default=5, ge=1, le=20, description="kook 技能 channel_info 展示置顶消息条数")
+    kook_thread_body_chars: int = Field(
+        default=6000, ge=1000, le=30_000, description="kook 技能 read_forum_thread 主楼正文最大字符数"
+    )
+    stickers_pool_limit: int = Field(
+        default=200, ge=20, le=1000, description="stickers 技能 search_stickers 候选表情包检索池上限"
+    )
+    request_limit: int = Field(default=12, ge=1, le=100, description="无工作区工具时的单次对话模型调用上限")
+    tool_calls_limit: int = Field(default=16, ge=1, le=200, description="无工作区工具时的单次对话工具调用上限")
     sandbox_enabled: bool = Field(
         default=True,
         description="工作区全局总开关；关掉后所有频道都没有工作区工具（单频道可在 tools.enabled 移出 sandbox）",

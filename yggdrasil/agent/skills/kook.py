@@ -143,7 +143,8 @@ async def channel_info(ctx: RunContext[Deps]) -> str:
         )
 
     try:
-        pinned = (await kook.pinned_messages(channel_id, limit=PINNED_SHOWN))[:PINNED_SHOWN]
+        pinned_shown = ctx.deps.settings.tools.kook_pinned_shown
+        pinned = (await kook.pinned_messages(channel_id, limit=pinned_shown))[:pinned_shown]
         if pinned:
             ids = [m.sender.user_id for m in pinned] + [u for m in pinned for u in normalize(m.segments).mentions]
             people = await people_for(ctx, ids)
@@ -191,7 +192,8 @@ async def upload_file(ctx: RunContext[Deps], path: str, name: str | None = None)
     if session is None:
         raise ToolError("这个频道没开工作区，没法上传文件")
     try:
-        data = await session.get_bytes(path, max_bytes=UPLOAD_MAX_BYTES)
+        max_bytes = ctx.deps.settings.tools.kook_upload_max_mb * 1024 * 1024
+        data = await session.get_bytes(path, max_bytes=max_bytes)
     except SandboxError as e:
         raise ToolError(str(e)) from e
     shown = PurePosixPath((name or "").replace("\\", "/")).name.strip() or PurePosixPath(path).name
@@ -425,11 +427,12 @@ async def read_forum_thread(
     meta.append(f"回复：{thread.post_count}，收藏：{thread.collect_num}")
     header_parts.append(" | ".join(meta))
 
+    body_limit = ctx.deps.settings.tools.kook_thread_body_chars
     body_text = thread.content_text or thread.preview_content or "（无正文）"
     if thread.content_deleted:
         body_text = "（主楼内容已被删除）"
-    elif len(body_text) > _THREAD_BODY_CHARS:
-        body_text = body_text[:_THREAD_BODY_CHARS] + "\n…（正文过长已截断）"
+    elif len(body_text) > body_limit:
+        body_text = body_text[:body_limit] + "\n…（正文过长已截断）"
 
     media_keys: list[str] = []
     if thread.content_segments:
@@ -473,12 +476,13 @@ def _tool(fn: Callable[..., Awaitable[ToolResult]]) -> Tool[Deps]:
     return Tool(fn, takes_ctx=True)
 
 
-def capability() -> Capability[Deps]:
+def capability(*, extra_instructions: str = "") -> Capability[Deps]:
     fns = (member_info, channel_info, get_avatar, react_message, upload_file, list_forum_threads, read_forum_thread)
+    text = INSTRUCTIONS if not extra_instructions.strip() else f"{INSTRUCTIONS}\n\n{extra_instructions.strip()}"
     return Capability[Deps](
         id=ID,
         description=DESCRIPTION,
-        instructions=INSTRUCTIONS,
+        instructions=text,
         tools=[_tool(fn) for fn in fns],
         defer_loading=True,
     )

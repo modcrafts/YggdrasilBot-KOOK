@@ -23,6 +23,7 @@ from yggdrasil.admin import (
     search_providers,
     settings_api,
     stickers,
+    tools_api,
     transcripts,
     triggers,
 )
@@ -36,6 +37,7 @@ _ROUTERS = (
     search_providers.router,
     routes.router,
     settings_api.router,
+    tools_api.router,
     kook.router,
     channels.router,
     triggers.router,

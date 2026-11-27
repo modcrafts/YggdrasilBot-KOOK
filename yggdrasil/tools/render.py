@@ -22,6 +22,8 @@ async def render(
     *,
     base_url: str,
     max_images: int,
+    max_source_chars: int = MAX_SOURCE_CHARS,
+    timeout_s: float = TIMEOUT_S,
     client: httpx.AsyncClient | None = None,
 ) -> tuple[list[bytes], list[str]]:
     """Render ``source`` into 1..max_images PNGs (reading order) plus the service's warnings.
@@ -31,16 +33,16 @@ async def render(
     """
     if not source.strip():
         raise ToolError("要渲染的内容是空的")
-    if len(source) > MAX_SOURCE_CHARS:
-        raise ToolError(f"内容太长（超过 {MAX_SOURCE_CHARS} 字符）")
+    if len(source) > max_source_chars:
+        raise ToolError(f"内容太长（超过 {max_source_chars} 字符）")
     body = {"kind": kind, "source": source, "max_images": max_images}
     url = base_url.rstrip("/") + "/render"
     try:
         if client is None:
-            async with httpx.AsyncClient(timeout=TIMEOUT_S) as own:
+            async with httpx.AsyncClient(timeout=timeout_s) as own:
                 resp = await own.post(url, json=body)
         else:
-            resp = await client.post(url, json=body, timeout=TIMEOUT_S)
+            resp = await client.post(url, json=body, timeout=timeout_s)
     except httpx.HTTPError as e:
         raise ToolError(_UNAVAILABLE) from e
     if resp.status_code in (422, 503):

@@ -16,6 +16,7 @@ import { SandboxPage } from "@/pages/sandbox";
 import { SearchPage } from "@/pages/search";
 import { SettingsPage } from "@/pages/settings";
 import { StickersPage } from "@/pages/stickers";
+import { ToolsPage } from "@/pages/tools";
 import { TriggersPage } from "@/pages/triggers";
 
 const rootRoute = createRootRoute({
@@ -31,6 +32,7 @@ const routeTree = rootRoute.addChildren([
   page("/providers", ProvidersPage),
   page("/routes", RoutesPage),
   page("/search", SearchPage),
+  page("/tools", ToolsPage),
   page("/channels", ChannelsPage),
   page("/triggers", TriggersPage),
   page("/settings", SettingsPage),

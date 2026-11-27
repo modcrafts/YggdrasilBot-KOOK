@@ -34,6 +34,34 @@ from yggdrasil.llm.catalog import ModelCaps
 from yggdrasil.settings import Settings, merge_settings
 
 CHANNEL = "ygg:config"
+TOOL_SECRETS_KEY = "tool.secrets"
+SKILLS_CONFIG_KEY = "skills.config"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSecretInfo:
+    enabled: bool = False
+    base_url: str = ""
+    api_key: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class CustomSkillInfo:
+    id: str
+    name: str
+    description: str
+    instructions: str
+    defer_loading: bool = True
+    handlers: tuple[str, ...] = ("chat",)
+    allow_private: bool = True
+    enabled: bool = True
+    default_active: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltinSkillOverrideInfo:
+    extra_instructions: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +165,9 @@ class Snapshot:
     admin_emails: frozenset[str] = frozenset()
     embed_space: EmbedSpaceInfo | None = None
     search_providers: tuple[SearchProviderInfo, ...] = ()
+    tool_secrets: dict[str, ToolSecretInfo] = field(default_factory=dict)
+    custom_skills: dict[str, CustomSkillInfo] = field(default_factory=dict)
+    builtin_skill_overrides: dict[str, BuiltinSkillOverrideInfo] = field(default_factory=dict)
     _settings_cache: dict[tuple[str | None, str | None, str | None], Settings] = field(default_factory=dict, repr=False)
 
     def guild_of(self, channel_id: str | None) -> str | None:
@@ -316,6 +347,8 @@ async def load() -> Snapshot:
             for c in (await session.scalars(select(Channel))).all()
         }
         doc = await session.get(SettingsDoc, "global")
+        secrets_doc = await session.get(SettingsDoc, TOOL_SECRETS_KEY)
+        skills_doc = await session.get(SettingsDoc, SKILLS_CONFIG_KEY)
         triggers = tuple(
             TriggerRule(
                 t.id,
@@ -348,6 +381,8 @@ async def load() -> Snapshot:
     emails = {a.value.lower() for a in admins if a.kind == "email"} | {
         e.lower() for e in APP_CONFIG.bootstrap_admin_emails
     }
+    tool_secrets = _parse_tool_secrets(secrets_doc.value if secrets_doc else {})
+    custom_skills, builtin_skill_overrides = _parse_skills_config(skills_doc.value if skills_doc else {})
     _snapshot = Snapshot(
         version=_snapshot.version + 1,
         providers=providers,
@@ -361,6 +396,9 @@ async def load() -> Snapshot:
         admin_emails=frozenset(emails),
         embed_space=EmbedSpaceInfo(space.id, space.provider_id, space.model, space.dim) if space else None,
         search_providers=search_providers,
+        tool_secrets=tool_secrets,
+        custom_skills=custom_skills,
+        builtin_skill_overrides=builtin_skill_overrides,
     )
     for fn in _listeners:
         result = fn(_snapshot)
@@ -386,6 +424,66 @@ def _decrypt_key(enc: bytes | None, owner: str) -> str | None:
     except Exception:
         LOGGER.error("cannot decrypt api key of {} (YGG_SECRET_KEY changed?)", owner)
         return None
+
+
+def _parse_tool_secrets(raw: Any) -> dict[str, ToolSecretInfo]:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, ToolSecretInfo] = {}
+    for tool_id, item in raw.items():
+        if not isinstance(tool_id, str) or not isinstance(item, dict):
+            continue
+        enc_raw = item.get("api_key_enc")
+        enc_bytes = enc_raw.encode() if isinstance(enc_raw, str) and enc_raw else None
+        headers_raw = item.get("headers")
+        headers = (
+            {str(k): str(v) for k, v in headers_raw.items() if str(k).strip()} if isinstance(headers_raw, dict) else {}
+        )
+        out[tool_id] = ToolSecretInfo(
+            enabled=bool(item.get("enabled", False)),
+            base_url=str(item.get("base_url") or "").strip().rstrip("/"),
+            api_key=_decrypt_key(enc_bytes, f"tool:{tool_id}"),
+            headers=headers,
+        )
+    return out
+
+
+def _parse_skills_config(raw: Any) -> tuple[dict[str, CustomSkillInfo], dict[str, BuiltinSkillOverrideInfo]]:
+    if not isinstance(raw, dict):
+        return {}, {}
+    custom: dict[str, CustomSkillInfo] = {}
+    for item in raw.get("custom") or ():
+        if not isinstance(item, dict):
+            continue
+        sid = str(item.get("id") or "").strip()
+        if not sid or ":" in sid:
+            continue
+        handlers_raw = item.get("handlers")
+        handlers = (
+            tuple(str(h) for h in handlers_raw if h in ("chat", "tldr"))
+            if isinstance(handlers_raw, list)
+            else ("chat",)
+        )
+        custom[sid] = CustomSkillInfo(
+            id=sid,
+            name=str(item.get("name") or sid).strip() or sid,
+            description=str(item.get("description") or "").strip(),
+            instructions=str(item.get("instructions") or "").strip(),
+            defer_loading=bool(item.get("defer_loading", True)),
+            handlers=handlers or ("chat",),
+            allow_private=bool(item.get("allow_private", True)),
+            enabled=bool(item.get("enabled", True)),
+            default_active=bool(item.get("default_active", True)),
+        )
+    overrides: dict[str, BuiltinSkillOverrideInfo] = {}
+    raw_overrides = raw.get("builtin_overrides")
+    if isinstance(raw_overrides, dict):
+        for sid, item in raw_overrides.items():
+            if not isinstance(sid, str) or not isinstance(item, dict):
+                continue
+            extra_text = str(item.get("extra_instructions") or "").strip()
+            overrides[sid] = BuiltinSkillOverrideInfo(extra_instructions=extra_text)
+    return custom, overrides
 
 
 async def publish_change(reason: str) -> None:

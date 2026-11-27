@@ -77,7 +77,7 @@ def _is_same_guild_emoji(
     return _origin_guild(emoji_id, sticker_guild_id) == target_guild_id
 
 
-async def _load_pool(guild_id: str | None) -> list[_StickerRow]:
+async def _load_pool(guild_id: str | None, *, limit: int = _POOL_LIMIT) -> list[_StickerRow]:
     has_blob = exists().where(StickerBlob.sticker_id == Sticker.id)
     same_guild_emoji = (
         (Sticker.kind == "emoji")
@@ -99,7 +99,7 @@ async def _load_pool(guild_id: str | None) -> list[_StickerRow]:
         )
         .where(Sticker.enabled.is_(True), ready_or_named_emoji)
         .order_by(StickerUsage.count.desc().nullslast(), Sticker.seen_count.desc(), Sticker.id.desc())
-        .limit(_POOL_LIMIT)
+        .limit(limit)
     )
     async with get_session() as session:
         rows = (await session.execute(stmt)).all()
@@ -170,7 +170,8 @@ async def search_stickers(ctx: RunContext[Deps], query: str = "", limit: int = 8
     query 可填表情名、情绪或场景词（如“doge”“笑哭”“点赞”“吐槽”），留空返回常用表情；limit 最多 15。"""
     cap = min(max(limit, 1), 15)
     guild_id = ctx.deps.guild_id
-    pool = await _load_pool(guild_id)
+    pool_limit = ctx.deps.settings.tools.stickers_pool_limit
+    pool = await (_load_pool(guild_id) if pool_limit == _POOL_LIMIT else _load_pool(guild_id, limit=pool_limit))
     if not pool:
         return "表情包库里还没有可用的表情包"
     terms = [t.lower() for t in _QUERY_SPLIT.split(query.strip()) if t]
@@ -266,12 +267,13 @@ def _tool(fn: Callable[..., Awaitable[ToolResult]]) -> Tool[Deps]:
     return Tool(fn, takes_ctx=True)
 
 
-def capability() -> Capability[Deps]:
+def capability(*, extra_instructions: str = "") -> Capability[Deps]:
     fns = (search_stickers, pick_sticker, save_sticker)
+    text = INSTRUCTIONS if not extra_instructions.strip() else f"{INSTRUCTIONS}\n\n{extra_instructions.strip()}"
     return Capability[Deps](
         id=ID,
         description=DESCRIPTION,
-        instructions=INSTRUCTIONS,
+        instructions=text,
         tools=[_tool(fn) for fn in fns],
         defer_loading=True,
     )

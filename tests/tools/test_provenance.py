@@ -13,11 +13,12 @@ from tests.support.kook import FakeKook
 from yggdrasil.agent.deps import Deps, Handles
 from yggdrasil.agent.tools import attachments
 from yggdrasil.config import APP_CONFIG
-from yggdrasil.runtime import ProviderInfo, Snapshot
+from yggdrasil.runtime import ProviderInfo, Snapshot, ToolSecretInfo
 from yggdrasil.settings import Settings
 from yggdrasil.tools.provenance import (
     ProvenanceError,
     check_content_provenance,
+    describe_provenance_source,
     format_provenance_report,
     resolve_provenance_endpoint,
 )
@@ -41,16 +42,46 @@ def test_resolve_provenance_endpoint_priority(
             3: _provider(3, "Relay", "https://relay.example.com/v1", "sk-relay"),
         }
     )
-    # 1. Explicit provider_ref wins (by name or ID)
+    # 1. Explicit provider_ref wins over standalone secret and auto-detect
+    snapshot(
+        providers={
+            1: _provider(1, "OpenRouter", "https://openrouter.ai/api/v1", "sk-or"),
+            2: _provider(2, "OpenAI Official", "https://api.openai.com/v1", "sk-official"),
+            3: _provider(3, "Relay", "https://relay.example.com/v1", "sk-relay"),
+        },
+        tool_secrets={
+            "check_provenance": ToolSecretInfo(
+                enabled=True, base_url="https://custom.example.com/v1", api_key="sk-custom", headers={"X-Org": "acme"}
+            )
+        },
+    )
     assert resolve_provenance_endpoint("Relay")[:2] == ("https://relay.example.com/v1", "sk-relay")
     assert resolve_provenance_endpoint("3")[:2] == ("https://relay.example.com/v1", "sk-relay")
-    # 2. Auto-detect official api.openai.com provider
+    assert describe_provenance_source("Relay").mode == "provider"
+
+    # 2. Enabled standalone tool secret wins over auto-detect when provider_ref is empty
+    assert resolve_provenance_endpoint() == ("https://custom.example.com/v1", "sk-custom", {"X-Org": "acme"})
+    assert describe_provenance_source().mode == "custom"
+
+    # 3. Auto-detect official api.openai.com provider when standalone secret is disabled
+    snapshot(
+        providers={
+            1: _provider(1, "OpenRouter", "https://openrouter.ai/api/v1", "sk-or"),
+            2: _provider(2, "OpenAI Official", "https://api.openai.com/v1", "sk-official"),
+        },
+        tool_secrets={"check_provenance": ToolSecretInfo(enabled=False, api_key="sk-custom")},
+    )
     assert resolve_provenance_endpoint()[:2] == ("https://api.openai.com/v1", "sk-official")
-    # 3. Fallback to OPENAI_API_KEY env var when no official provider is registered
+    assert describe_provenance_source().mode == "auto_provider"
+
+    # 4. Fallback to OPENAI_API_KEY env var when no official provider is registered
     snapshot(providers={1: _provider(1, "OpenRouter", "https://openrouter.ai/api/v1", "sk-or")})
     assert resolve_provenance_endpoint()[:2] == ("https://api.openai.com/v1", "sk-env")
-    # 4. Clear error when nothing is configured
+    assert describe_provenance_source().mode == "env"
+
+    # 5. Clear error when nothing is configured
     monkeypatch.setattr(APP_CONFIG, "openai_api_key", "")
+    assert describe_provenance_source().configured is False
     with pytest.raises(ProvenanceError, match="未配置"):
         resolve_provenance_endpoint()
 

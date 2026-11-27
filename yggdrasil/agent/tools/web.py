@@ -276,12 +276,14 @@ async def read_x(ctx: RunContext[Deps], url_or_id: str, page: int = 1) -> str:
 
 
 @chat_tool("search_x")
-async def search_x(ctx: RunContext[Deps], query: str, kind: Literal["news", "posts"] = "news", hours: int = 24) -> str:
+async def search_x(
+    ctx: RunContext[Deps], query: str, kind: Literal["news", "posts"] = "news", hours: int | None = None
+) -> str:
     """搜 X（推特）上的最新动态和讨论：Grok 在 X 上搜索后用中文总结，附上引用的帖子链接。很慢（常要 20–40 秒），
     只在确实需要 X 上的内容时用，普通资料用 web_search。query 直接写想问的问题
-    （“某某最近说了什么”“XX 发布了吗，大家怎么评价”）。hours 是往前看几小时（最多 720）。Grok 不可用时改用 X API：
-    kind="news"（默认）是 X 整理的新闻摘要，kind="posts" 是最近 7 天按相关度排的原帖（最多 10 条）。
-    要看帖子全文、图片或评论上下文，再用 read_x。"""
+    （“某某最近说了什么”“XX 发布了吗，大家怎么评价”）。hours 是往前看几小时（最多 720，不填用工具默认配置）。
+    Grok 不可用时改用 X API：kind="news"（默认）是 X 整理的新闻摘要，
+    kind="posts" 是最近 7 天按相关度排的原帖（最多 10 条）。要看帖子全文、图片或评论上下文，再用 read_x。"""
     from yggdrasil.core.log import LOGGER
     from yggdrasil.runtime import snapshot
     from yggdrasil.tools import grok, x
@@ -290,13 +292,14 @@ async def search_x(ctx: RunContext[Deps], query: str, kind: Literal["news", "pos
     query = query.strip()
     if not query:
         raise ToolError("搜索关键词不能为空")
+    lookback = ctx.deps.settings.tools.search_x_default_hours if hours is None else hours
     providers = snapshot().search_providers
     api = x.provider(providers)
     if (g := grok.provider(providers)) is not None:
         try:
             if not await reserve_quota(g):
                 raise ToolError("Grok 本月额度已用完")
-            answer = await grok.x_search(g, query, hours=hours)
+            answer = await grok.x_search(g, query, hours=lookback)
         except ToolError as e:
             if api is None:
                 raise
@@ -309,7 +312,7 @@ async def search_x(ctx: RunContext[Deps], query: str, kind: Literal["news", "pos
         raise ToolError("没有配置 Grok 或 X API（控制台 → 搜索源 → 添加 Grok 或 X API 类型）")
     if kind == "news":
         n = ctx.deps.settings.tools.search_results
-        stories = await x.search_news(api, query, hours=hours, n=n, reserve=reserve_quota)
+        stories = await x.search_news(api, query, hours=lookback, n=n, reserve=reserve_quota)
         if not stories:
             return "X 上没有相关的新闻"
         hits = [
@@ -318,7 +321,7 @@ async def search_x(ctx: RunContext[Deps], query: str, kind: Literal["news", "pos
         ]
         ctx.deps.notes.show(ctx.tool_call_id, HitsDisplay(query=query, hits=hits))
         return x.format_news(stories)
-    posts = await x.search_posts(api, query, hours=hours, reserve=reserve_quota)
+    posts = await x.search_posts(api, query, hours=lookback, reserve=reserve_quota)
     if not posts:
         return "X 上没有相关的帖子"
     hits = [Hit(title=x.who(p), url=p.url, snippet=p.text) for p in posts]

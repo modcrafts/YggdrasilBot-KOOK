@@ -1,4 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { ArrowUpRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -67,15 +69,41 @@ export function SettingsPage() {
           {Object.entries(resolveSchema(root, root).properties ?? {}).map(([key, child]) => (
             <Card key={key}>
               <CardHeader>
-                <CardTitle>{SECTION_LABELS[key] ?? key}</CardTitle>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle>{SECTION_LABELS[key] ?? key}</CardTitle>
+                  {key === "tools" && (
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to="/tools">
+                        前往「工具与技能」页面
+                        <ArrowUpRightIcon data-icon="inline-end" className="size-3.5" />
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+                {key === "tools" && (
+                  <CardDescription>
+                    各工具的专属参数、OpenAI 内容检测凭据与在线测试、内置及自定义 Skills 均已独立至「工具与技能」页面管理。
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent>
-                <SchemaObject
-                  schema={child}
-                  root={root}
-                  value={draft[key]}
-                  onChange={(v) => setDraft((d) => ({ ...d, [key]: v }))}
-                />
+                {key === "tools" ? (
+                  <Disclosure label="展开原始工具表单（高级 / 全字段视图）">
+                    <SchemaObject
+                      schema={child}
+                      root={root}
+                      value={draft[key]}
+                      onChange={(v) => setDraft((d) => ({ ...d, [key]: v }))}
+                    />
+                  </Disclosure>
+                ) : (
+                  <SchemaObject
+                    schema={child}
+                    root={root}
+                    value={draft[key]}
+                    onChange={(v) => setDraft((d) => ({ ...d, [key]: v }))}
+                  />
+                )}
               </CardContent>
             </Card>
           ))}

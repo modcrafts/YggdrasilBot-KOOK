@@ -276,6 +276,68 @@ export type BridgeCall = {
 };
 
 /**
+ * BuiltinSkillOut
+ */
+export type BuiltinSkillOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Tools
+     */
+    tools: Array<string>;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Params
+     */
+    params?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Defaults
+     */
+    defaults?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Extra Instructions
+     */
+    extra_instructions?: string;
+};
+
+/**
+ * BuiltinSkillPatchIn
+ */
+export type BuiltinSkillPatchIn = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean | null;
+    /**
+     * Params
+     */
+    params?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Extra Instructions
+     */
+    extra_instructions?: string | null;
+};
+
+/**
  * CategoryNode
  */
 export type CategoryNode = {
@@ -512,6 +574,128 @@ export type ChatMessagesDisplay = {
      * Message Ids
      */
     message_ids?: Array<number>;
+};
+
+/**
+ * CustomSkillIn
+ */
+export type CustomSkillIn = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Instructions
+     */
+    instructions: string;
+    /**
+     * Defer Loading
+     */
+    defer_loading?: boolean;
+    /**
+     * Handlers
+     */
+    handlers?: Array<'chat' | 'tldr'>;
+    /**
+     * Allow Private
+     */
+    allow_private?: boolean;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Default Active
+     */
+    default_active?: boolean;
+};
+
+/**
+ * CustomSkillOut
+ */
+export type CustomSkillOut = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Instructions
+     */
+    instructions: string;
+    /**
+     * Defer Loading
+     */
+    defer_loading?: boolean;
+    /**
+     * Handlers
+     */
+    handlers?: Array<'chat' | 'tldr'>;
+    /**
+     * Allow Private
+     */
+    allow_private?: boolean;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Default Active
+     */
+    default_active?: boolean;
+};
+
+/**
+ * CustomSkillUpdateIn
+ */
+export type CustomSkillUpdateIn = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Instructions
+     */
+    instructions: string;
+    /**
+     * Defer Loading
+     */
+    defer_loading?: boolean;
+    /**
+     * Handlers
+     */
+    handlers?: Array<'chat' | 'tldr'>;
+    /**
+     * Allow Private
+     */
+    allow_private?: boolean;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Default Active
+     */
+    default_active?: boolean;
 };
 
 /**
@@ -867,6 +1051,42 @@ export type ForumThreadOut = {
      * Synced At
      */
     synced_at: string;
+};
+
+/**
+ * GeneralToolPolicyIn
+ */
+export type GeneralToolPolicyIn = {
+    /**
+     * Request Limit
+     */
+    request_limit?: number | null;
+    /**
+     * Tool Calls Limit
+     */
+    tool_calls_limit?: number | null;
+    /**
+     * Slow Tools
+     */
+    slow_tools?: Array<string> | null;
+};
+
+/**
+ * GeneralToolPolicyOut
+ */
+export type GeneralToolPolicyOut = {
+    /**
+     * Request Limit
+     */
+    request_limit: number;
+    /**
+     * Tool Calls Limit
+     */
+    tool_calls_limit: number;
+    /**
+     * Slow Tools
+     */
+    slow_tools: Array<string>;
 };
 
 /**
@@ -2261,6 +2481,64 @@ export type PromptVersionOut = {
 };
 
 /**
+ * ProvenanceTestIn
+ *
+ * Optional base64-encoded file for real provenance testing; omit to run a lightweight 1x1 PNG probe.
+ */
+export type ProvenanceTestIn = {
+    /**
+     * File B64
+     */
+    file_b64?: string | null;
+    /**
+     * Filename
+     */
+    filename?: string;
+    /**
+     * Mime
+     */
+    mime?: string;
+};
+
+/**
+ * ProvenanceTestOut
+ */
+export type ProvenanceTestOut = {
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Latency Ms
+     */
+    latency_ms: number;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Endpoint
+     */
+    endpoint?: string;
+    /**
+     * Filename
+     */
+    filename?: string;
+    /**
+     * Any Detected
+     */
+    any_detected?: boolean | null;
+    /**
+     * Report
+     */
+    report?: string | null;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
  * ProviderIn
  */
 export type ProviderIn = {
@@ -2796,6 +3074,20 @@ export type ShownImage = {
 };
 
 /**
+ * SkillsOverviewOut
+ */
+export type SkillsOverviewOut = {
+    /**
+     * Builtin
+     */
+    builtin: Array<BuiltinSkillOut>;
+    /**
+     * Custom
+     */
+    custom: Array<CustomSkillOut>;
+};
+
+/**
  * SourceRef
  */
 export type SourceRef = {
@@ -3239,6 +3531,167 @@ export type ToolCallPart = {
      * Chars
      */
     chars?: number;
+};
+
+/**
+ * ToolConfigPatchIn
+ */
+export type ToolConfigPatchIn = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean | null;
+    /**
+     * Slow
+     */
+    slow?: boolean | null;
+    /**
+     * Params
+     */
+    params?: {
+        [key: string]: unknown;
+    };
+    secret?: ToolSecretIn | null;
+};
+
+/**
+ * ToolItemOut
+ */
+export type ToolItemOut = {
+    /**
+     * Id
+     */
+    id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'sandbox';
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Category
+     */
+    category: 'web' | 'media' | 'memory' | 'render' | 'sandbox';
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Handlers
+     */
+    handlers: Array<string>;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Slow
+     */
+    slow: boolean;
+    /**
+     * Status
+     */
+    status: 'ready' | 'warning' | 'unconfigured' | 'disabled';
+    /**
+     * Status Label
+     */
+    status_label: string;
+    /**
+     * Status Detail
+     */
+    status_detail: string;
+    /**
+     * Related Route
+     */
+    related_route?: string | null;
+    /**
+     * Related Label
+     */
+    related_label?: string | null;
+    /**
+     * Params
+     */
+    params?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Defaults
+     */
+    defaults?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Supports Secret
+     */
+    supports_secret?: boolean;
+    secret?: ToolSecretOut | null;
+};
+
+/**
+ * ToolSecretIn
+ */
+export type ToolSecretIn = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Base Url
+     */
+    base_url?: string;
+    /**
+     * Api Key
+     */
+    api_key?: string | null;
+    /**
+     * Clear Api Key
+     */
+    clear_api_key?: boolean;
+    /**
+     * Headers
+     */
+    headers?: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * ToolSecretOut
+ */
+export type ToolSecretOut = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Base Url
+     */
+    base_url?: string;
+    /**
+     * Api Key Masked
+     */
+    api_key_masked?: string | null;
+    /**
+     * Headers
+     */
+    headers?: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * ToolsOverviewOut
+ */
+export type ToolsOverviewOut = {
+    /**
+     * Items
+     */
+    items: Array<ToolItemOut>;
+    general: GeneralToolPolicyOut;
+    /**
+     * Runtime Flags
+     */
+    runtime_flags: {
+        [key: string]: boolean;
+    };
 };
 
 /**
@@ -4438,6 +4891,233 @@ export type PutScopeSettingsResponses = {
 };
 
 export type PutScopeSettingsResponse = PutScopeSettingsResponses[keyof PutScopeSettingsResponses];
+
+export type GetToolsOverviewData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/tools';
+};
+
+export type GetToolsOverviewResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolsOverviewOut;
+};
+
+export type GetToolsOverviewResponse = GetToolsOverviewResponses[keyof GetToolsOverviewResponses];
+
+export type UpdateGeneralToolPolicyData = {
+    body: GeneralToolPolicyIn;
+    path?: never;
+    query?: never;
+    url: '/tools/general';
+};
+
+export type UpdateGeneralToolPolicyErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateGeneralToolPolicyError = UpdateGeneralToolPolicyErrors[keyof UpdateGeneralToolPolicyErrors];
+
+export type UpdateGeneralToolPolicyResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolsOverviewOut;
+};
+
+export type UpdateGeneralToolPolicyResponse = UpdateGeneralToolPolicyResponses[keyof UpdateGeneralToolPolicyResponses];
+
+export type UpdateToolConfigData = {
+    body: ToolConfigPatchIn;
+    path: {
+        /**
+         * Tool Id
+         */
+        tool_id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'sandbox';
+    };
+    query?: never;
+    url: '/tools/{tool_id}';
+};
+
+export type UpdateToolConfigErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateToolConfigError = UpdateToolConfigErrors[keyof UpdateToolConfigErrors];
+
+export type UpdateToolConfigResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolsOverviewOut;
+};
+
+export type UpdateToolConfigResponse = UpdateToolConfigResponses[keyof UpdateToolConfigResponses];
+
+export type TestProvenanceToolData = {
+    body: ProvenanceTestIn;
+    path?: never;
+    query?: never;
+    url: '/tools/check_provenance/test';
+};
+
+export type TestProvenanceToolErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestProvenanceToolError = TestProvenanceToolErrors[keyof TestProvenanceToolErrors];
+
+export type TestProvenanceToolResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProvenanceTestOut;
+};
+
+export type TestProvenanceToolResponse = TestProvenanceToolResponses[keyof TestProvenanceToolResponses];
+
+export type GetSkillsOverviewData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/skills';
+};
+
+export type GetSkillsOverviewResponses = {
+    /**
+     * Successful Response
+     */
+    200: SkillsOverviewOut;
+};
+
+export type GetSkillsOverviewResponse = GetSkillsOverviewResponses[keyof GetSkillsOverviewResponses];
+
+export type UpdateBuiltinSkillData = {
+    body: BuiltinSkillPatchIn;
+    path: {
+        /**
+         * Skill Id
+         */
+        skill_id: string;
+    };
+    query?: never;
+    url: '/skills/builtin/{skill_id}';
+};
+
+export type UpdateBuiltinSkillErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateBuiltinSkillError = UpdateBuiltinSkillErrors[keyof UpdateBuiltinSkillErrors];
+
+export type UpdateBuiltinSkillResponses = {
+    /**
+     * Successful Response
+     */
+    200: SkillsOverviewOut;
+};
+
+export type UpdateBuiltinSkillResponse = UpdateBuiltinSkillResponses[keyof UpdateBuiltinSkillResponses];
+
+export type CreateCustomSkillData = {
+    body: CustomSkillIn;
+    path?: never;
+    query?: never;
+    url: '/skills/custom';
+};
+
+export type CreateCustomSkillErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateCustomSkillError = CreateCustomSkillErrors[keyof CreateCustomSkillErrors];
+
+export type CreateCustomSkillResponses = {
+    /**
+     * Successful Response
+     */
+    200: CustomSkillOut;
+};
+
+export type CreateCustomSkillResponse = CreateCustomSkillResponses[keyof CreateCustomSkillResponses];
+
+export type DeleteCustomSkillData = {
+    body?: never;
+    path: {
+        /**
+         * Skill Id
+         */
+        skill_id: string;
+    };
+    query?: never;
+    url: '/skills/custom/{skill_id}';
+};
+
+export type DeleteCustomSkillErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteCustomSkillError = DeleteCustomSkillErrors[keyof DeleteCustomSkillErrors];
+
+export type DeleteCustomSkillResponses = {
+    /**
+     * Successful Response
+     */
+    200: Ok;
+};
+
+export type DeleteCustomSkillResponse = DeleteCustomSkillResponses[keyof DeleteCustomSkillResponses];
+
+export type UpdateCustomSkillData = {
+    body: CustomSkillUpdateIn;
+    path: {
+        /**
+         * Skill Id
+         */
+        skill_id: string;
+    };
+    query?: never;
+    url: '/skills/custom/{skill_id}';
+};
+
+export type UpdateCustomSkillErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateCustomSkillError = UpdateCustomSkillErrors[keyof UpdateCustomSkillErrors];
+
+export type UpdateCustomSkillResponses = {
+    /**
+     * Successful Response
+     */
+    200: CustomSkillOut;
+};
+
+export type UpdateCustomSkillResponse = UpdateCustomSkillResponses[keyof UpdateCustomSkillResponses];
 
 export type DeleteKookConnectionData = {
     body?: never;

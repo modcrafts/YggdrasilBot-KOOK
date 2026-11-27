@@ -16,6 +16,7 @@ import {
   SmileIcon,
   TerminalSquareIcon,
   UsersIcon,
+  WrenchIcon,
 } from "lucide-react";
 import { getMeOptions } from "@/client/@tanstack/react-query.gen";
 import { Hint } from "@/components/common";
@@ -29,6 +30,7 @@ export const NAV = [
   { to: "/providers", label: "Providers", icon: ServerIcon },
   { to: "/routes", label: "模型路由", icon: RouteIcon },
   { to: "/search", label: "搜索源", icon: SearchIcon },
+  { to: "/tools", label: "工具与技能", icon: WrenchIcon },
   { to: "/channels", label: "服务器与频道", icon: UsersIcon },
   { to: "/triggers", label: "指令", icon: TerminalSquareIcon },
   { to: "/settings", label: "设置", icon: Settings2Icon },

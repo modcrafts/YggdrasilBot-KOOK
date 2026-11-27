@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { ActivatePromptVersionData, ActivatePromptVersionErrors, ActivatePromptVersionResponses, AddAdminData, AddAdminErrors, AddAdminResponses, ArchiveSmallTopicsData, ArchiveSmallTopicsErrors, ArchiveSmallTopicsResponses, ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, BackfillChannelData, BackfillChannelErrors, BackfillChannelResponses, CancelJobData, CancelJobErrors, CancelJobResponses, CreateEmbedSpaceData, CreateEmbedSpaceErrors, CreateEmbedSpaceResponses, CreateGlossaryTermData, CreateGlossaryTermErrors, CreateGlossaryTermResponses, CreatePromptVersionData, CreatePromptVersionErrors, CreatePromptVersionResponses, CreateProviderData, CreateProviderErrors, CreateProviderResponses, CreateSearchProviderData, CreateSearchProviderErrors, CreateSearchProviderResponses, CreateTriggerData, CreateTriggerErrors, CreateTriggerResponses, DecideReviewData, DecideReviewErrors, DecideReviewResponses, DeleteChannelData, DeleteChannelErrors, DeleteChannelResponses, DeleteEmbedSpaceData, DeleteEmbedSpaceErrors, DeleteEmbedSpaceResponses, DeleteGlossaryTermData, DeleteGlossaryTermErrors, DeleteGlossaryTermResponses, DeleteGuildData, DeleteGuildErrors, DeleteGuildResponses, DeleteKookConnectionData, DeleteKookConnectionResponses, DeleteProfileData, DeleteProfileErrors, DeleteProfileFactData, DeleteProfileFactErrors, DeleteProfileFactResponses, DeleteProfileResponses, DeleteProviderData, DeleteProviderErrors, DeleteProviderResponses, DeleteRouteData, DeleteRouteErrors, DeleteRouteResponses, DeleteSearchProviderData, DeleteSearchProviderErrors, DeleteSearchProviderResponses, DeleteTriggerData, DeleteTriggerErrors, DeleteTriggerResponses, DestroyAllWorkspacesData, DestroyAllWorkspacesResponses, DestroyWorkspaceData, DestroyWorkspaceErrors, DestroyWorkspaceResponses, GetChannelTreeData, GetChannelTreeResponses, GetGlobalSettingsData, GetGlobalSettingsResponses, GetInvocationData, GetInvocationErrors, GetInvocationResponses, GetInvocationTranscriptData, GetInvocationTranscriptErrors, GetInvocationTranscriptResponses, GetJobData, GetJobErrors, GetJobResponses, GetJobTranscriptData, GetJobTranscriptErrors, GetJobTranscriptResponses, GetKookConnectionData, GetKookConnectionResponses, GetMeData, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetPromptData, GetPromptErrors, GetPromptResponses, GetProviderBalanceData, GetProviderBalanceErrors, GetProviderBalanceResponses, GetScopeSettingsData, GetScopeSettingsErrors, GetScopeSettingsResponses, GetSearchProviderBalanceData, GetSearchProviderBalanceErrors, GetSearchProviderBalanceResponses, GetSettingsSchemaData, GetSettingsSchemaResponses, GetStatsData, GetStatsResponses, GetStickerData, GetStickerErrors, GetStickerResponses, GetTriggerMetaData, GetTriggerMetaResponses, ListAdminsData, ListAdminsResponses, ListChannelsData, ListChannelsErrors, ListChannelsResponses, ListDigestsData, ListDigestsErrors, ListDigestsResponses, ListEmbedSpacesData, ListEmbedSpacesResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListForumChannelThreadsData, ListForumChannelThreadsErrors, ListForumChannelThreadsResponses, ListGlossaryData, ListGlossaryErrors, ListGlossaryResponses, ListGuildsData, ListGuildsResponses, ListInvocationsData, ListInvocationsErrors, ListInvocationsResponses, ListJobsData, ListJobsErrors, ListJobsResponses, ListKookGuildRolesData, ListKookGuildRolesErrors, ListKookGuildRolesResponses, ListKookLiveGuildsData, ListKookLiveGuildsResponses, ListPipelinesData, ListPipelinesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListPromptsData, ListPromptsResponses, ListProvidersData, ListProvidersResponses, ListReviewsData, ListReviewsErrors, ListReviewsResponses, ListRoutesData, ListRoutesResponses, ListSearchProvidersData, ListSearchProvidersResponses, ListStickerDropsData, ListStickerDropsErrors, ListStickerDropsResponses, ListStickersData, ListStickersErrors, ListStickersResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTriggersData, ListTriggersResponses, ListWorkspacesData, ListWorkspacesResponses, LockGlossaryTermData, LockGlossaryTermErrors, LockGlossaryTermResponses, PreviewPromptData, PreviewPromptErrors, PreviewPromptResponses, PutGlobalSettingsData, PutGlobalSettingsErrors, PutGlobalSettingsResponses, PutKookConnectionData, PutKookConnectionErrors, PutKookConnectionResponses, PutScopeSettingsData, PutScopeSettingsErrors, PutScopeSettingsResponses, ReembedEmbedSpaceData, ReembedEmbedSpaceErrors, ReembedEmbedSpaceResponses, RefreshProviderModelsData, RefreshProviderModelsErrors, RefreshProviderModelsResponses, RemoveAdminData, RemoveAdminErrors, RemoveAdminResponses, ResetPromptData, ResetPromptErrors, ResetPromptResponses, RestoreProfileFactData, RestoreProfileFactErrors, RestoreProfileFactResponses, SetProviderAliasesData, SetProviderAliasesErrors, SetProviderAliasesResponses, SetStickerEnabledData, SetStickerEnabledErrors, SetStickerEnabledResponses, StickerImageData, StickerImageErrors, StickerImageResponses, SyncForumChannelThreadsData, SyncForumChannelThreadsErrors, SyncForumChannelThreadsResponses, SyncKookStructureData, SyncKookStructureResponses, TestProviderData, TestProviderErrors, TestProviderResponses, TestSearchProviderData, TestSearchProviderErrors, TestSearchProviderResponses, TestTriggerData, TestTriggerErrors, TestTriggerResponses, TranscriptBlobData, TranscriptBlobErrors, TranscriptBlobResponses, UpdateGlossaryTermData, UpdateGlossaryTermErrors, UpdateGlossaryTermResponses, UpdateProviderData, UpdateProviderErrors, UpdateProviderResponses, UpdateSearchProviderData, UpdateSearchProviderErrors, UpdateSearchProviderResponses, UpdateTriggerData, UpdateTriggerErrors, UpdateTriggerResponses, UpsertChannelData, UpsertChannelErrors, UpsertChannelResponses, UpsertGuildData, UpsertGuildErrors, UpsertGuildResponses, UpsertRouteData, UpsertRouteErrors, UpsertRouteResponses } from './types.gen';
+import type { ActivatePromptVersionData, ActivatePromptVersionErrors, ActivatePromptVersionResponses, AddAdminData, AddAdminErrors, AddAdminResponses, ArchiveSmallTopicsData, ArchiveSmallTopicsErrors, ArchiveSmallTopicsResponses, ArchiveTopicData, ArchiveTopicErrors, ArchiveTopicResponses, BackfillChannelData, BackfillChannelErrors, BackfillChannelResponses, CancelJobData, CancelJobErrors, CancelJobResponses, CreateCustomSkillData, CreateCustomSkillErrors, CreateCustomSkillResponses, CreateEmbedSpaceData, CreateEmbedSpaceErrors, CreateEmbedSpaceResponses, CreateGlossaryTermData, CreateGlossaryTermErrors, CreateGlossaryTermResponses, CreatePromptVersionData, CreatePromptVersionErrors, CreatePromptVersionResponses, CreateProviderData, CreateProviderErrors, CreateProviderResponses, CreateSearchProviderData, CreateSearchProviderErrors, CreateSearchProviderResponses, CreateTriggerData, CreateTriggerErrors, CreateTriggerResponses, DecideReviewData, DecideReviewErrors, DecideReviewResponses, DeleteChannelData, DeleteChannelErrors, DeleteChannelResponses, DeleteCustomSkillData, DeleteCustomSkillErrors, DeleteCustomSkillResponses, DeleteEmbedSpaceData, DeleteEmbedSpaceErrors, DeleteEmbedSpaceResponses, DeleteGlossaryTermData, DeleteGlossaryTermErrors, DeleteGlossaryTermResponses, DeleteGuildData, DeleteGuildErrors, DeleteGuildResponses, DeleteKookConnectionData, DeleteKookConnectionResponses, DeleteProfileData, DeleteProfileErrors, DeleteProfileFactData, DeleteProfileFactErrors, DeleteProfileFactResponses, DeleteProfileResponses, DeleteProviderData, DeleteProviderErrors, DeleteProviderResponses, DeleteRouteData, DeleteRouteErrors, DeleteRouteResponses, DeleteSearchProviderData, DeleteSearchProviderErrors, DeleteSearchProviderResponses, DeleteTriggerData, DeleteTriggerErrors, DeleteTriggerResponses, DestroyAllWorkspacesData, DestroyAllWorkspacesResponses, DestroyWorkspaceData, DestroyWorkspaceErrors, DestroyWorkspaceResponses, GetChannelTreeData, GetChannelTreeResponses, GetGlobalSettingsData, GetGlobalSettingsResponses, GetInvocationData, GetInvocationErrors, GetInvocationResponses, GetInvocationTranscriptData, GetInvocationTranscriptErrors, GetInvocationTranscriptResponses, GetJobData, GetJobErrors, GetJobResponses, GetJobTranscriptData, GetJobTranscriptErrors, GetJobTranscriptResponses, GetKookConnectionData, GetKookConnectionResponses, GetMeData, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetPromptData, GetPromptErrors, GetPromptResponses, GetProviderBalanceData, GetProviderBalanceErrors, GetProviderBalanceResponses, GetScopeSettingsData, GetScopeSettingsErrors, GetScopeSettingsResponses, GetSearchProviderBalanceData, GetSearchProviderBalanceErrors, GetSearchProviderBalanceResponses, GetSettingsSchemaData, GetSettingsSchemaResponses, GetSkillsOverviewData, GetSkillsOverviewResponses, GetStatsData, GetStatsResponses, GetStickerData, GetStickerErrors, GetStickerResponses, GetToolsOverviewData, GetToolsOverviewResponses, GetTriggerMetaData, GetTriggerMetaResponses, ListAdminsData, ListAdminsResponses, ListChannelsData, ListChannelsErrors, ListChannelsResponses, ListDigestsData, ListDigestsErrors, ListDigestsResponses, ListEmbedSpacesData, ListEmbedSpacesResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListForumChannelThreadsData, ListForumChannelThreadsErrors, ListForumChannelThreadsResponses, ListGlossaryData, ListGlossaryErrors, ListGlossaryResponses, ListGuildsData, ListGuildsResponses, ListInvocationsData, ListInvocationsErrors, ListInvocationsResponses, ListJobsData, ListJobsErrors, ListJobsResponses, ListKookGuildRolesData, ListKookGuildRolesErrors, ListKookGuildRolesResponses, ListKookLiveGuildsData, ListKookLiveGuildsResponses, ListPipelinesData, ListPipelinesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListPromptsData, ListPromptsResponses, ListProvidersData, ListProvidersResponses, ListReviewsData, ListReviewsErrors, ListReviewsResponses, ListRoutesData, ListRoutesResponses, ListSearchProvidersData, ListSearchProvidersResponses, ListStickerDropsData, ListStickerDropsErrors, ListStickerDropsResponses, ListStickersData, ListStickersErrors, ListStickersResponses, ListTopicsData, ListTopicsErrors, ListTopicsResponses, ListTriggersData, ListTriggersResponses, ListWorkspacesData, ListWorkspacesResponses, LockGlossaryTermData, LockGlossaryTermErrors, LockGlossaryTermResponses, PreviewPromptData, PreviewPromptErrors, PreviewPromptResponses, PutGlobalSettingsData, PutGlobalSettingsErrors, PutGlobalSettingsResponses, PutKookConnectionData, PutKookConnectionErrors, PutKookConnectionResponses, PutScopeSettingsData, PutScopeSettingsErrors, PutScopeSettingsResponses, ReembedEmbedSpaceData, ReembedEmbedSpaceErrors, ReembedEmbedSpaceResponses, RefreshProviderModelsData, RefreshProviderModelsErrors, RefreshProviderModelsResponses, RemoveAdminData, RemoveAdminErrors, RemoveAdminResponses, ResetPromptData, ResetPromptErrors, ResetPromptResponses, RestoreProfileFactData, RestoreProfileFactErrors, RestoreProfileFactResponses, SetProviderAliasesData, SetProviderAliasesErrors, SetProviderAliasesResponses, SetStickerEnabledData, SetStickerEnabledErrors, SetStickerEnabledResponses, StickerImageData, StickerImageErrors, StickerImageResponses, SyncForumChannelThreadsData, SyncForumChannelThreadsErrors, SyncForumChannelThreadsResponses, SyncKookStructureData, SyncKookStructureResponses, TestProvenanceToolData, TestProvenanceToolErrors, TestProvenanceToolResponses, TestProviderData, TestProviderErrors, TestProviderResponses, TestSearchProviderData, TestSearchProviderErrors, TestSearchProviderResponses, TestTriggerData, TestTriggerErrors, TestTriggerResponses, TranscriptBlobData, TranscriptBlobErrors, TranscriptBlobResponses, UpdateBuiltinSkillData, UpdateBuiltinSkillErrors, UpdateBuiltinSkillResponses, UpdateCustomSkillData, UpdateCustomSkillErrors, UpdateCustomSkillResponses, UpdateGeneralToolPolicyData, UpdateGeneralToolPolicyErrors, UpdateGeneralToolPolicyResponses, UpdateGlossaryTermData, UpdateGlossaryTermErrors, UpdateGlossaryTermResponses, UpdateProviderData, UpdateProviderErrors, UpdateProviderResponses, UpdateSearchProviderData, UpdateSearchProviderErrors, UpdateSearchProviderResponses, UpdateToolConfigData, UpdateToolConfigErrors, UpdateToolConfigResponses, UpdateTriggerData, UpdateTriggerErrors, UpdateTriggerResponses, UpsertChannelData, UpsertChannelErrors, UpsertChannelResponses, UpsertGuildData, UpsertGuildErrors, UpsertGuildResponses, UpsertRouteData, UpsertRouteErrors, UpsertRouteResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -233,6 +233,111 @@ export const getScopeSettings = <ThrowOnError extends boolean = false>(options: 
  */
 export const putScopeSettings = <ThrowOnError extends boolean = false>(options: Options<PutScopeSettingsData, ThrowOnError>): RequestResult<PutScopeSettingsResponses, PutScopeSettingsErrors, ThrowOnError> => (options.client ?? client).put<PutScopeSettingsResponses, PutScopeSettingsErrors, ThrowOnError>({
     url: '/settings/scopes/{scope}/{scope_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get Tools Overview
+ *
+ * List all agent tools with their parameters, live readiness diagnostics, and masked standalone secrets.
+ */
+export const getToolsOverview = <ThrowOnError extends boolean = false>(options?: Options<GetToolsOverviewData, ThrowOnError>): RequestResult<GetToolsOverviewResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetToolsOverviewResponses, unknown, ThrowOnError>({ url: '/tools', ...options });
+
+/**
+ * Update General Tool Policy
+ *
+ * Update shared tool execution limits (``request_limit``, ``tool_calls_limit``, ``slow_tools``).
+ */
+export const updateGeneralToolPolicy = <ThrowOnError extends boolean = false>(options: Options<UpdateGeneralToolPolicyData, ThrowOnError>): RequestResult<UpdateGeneralToolPolicyResponses, UpdateGeneralToolPolicyErrors, ThrowOnError> => (options.client ?? client).put<UpdateGeneralToolPolicyResponses, UpdateGeneralToolPolicyErrors, ThrowOnError>({
+    url: '/tools/general',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Update Tool Config
+ *
+ * Update one tool's global default toggle, slow-tool flag, dedicated parameters, and optional encrypted secret.
+ */
+export const updateToolConfig = <ThrowOnError extends boolean = false>(options: Options<UpdateToolConfigData, ThrowOnError>): RequestResult<UpdateToolConfigResponses, UpdateToolConfigErrors, ThrowOnError> => (options.client ?? client).put<UpdateToolConfigResponses, UpdateToolConfigErrors, ThrowOnError>({
+    url: '/tools/{tool_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Test Provenance Tool
+ *
+ * Test OpenAI Content Provenance connectivity using an optional base64 file or a tiny 1x1 PNG probe.
+ */
+export const testProvenanceTool = <ThrowOnError extends boolean = false>(options: Options<TestProvenanceToolData, ThrowOnError>): RequestResult<TestProvenanceToolResponses, TestProvenanceToolErrors, ThrowOnError> => (options.client ?? client).post<TestProvenanceToolResponses, TestProvenanceToolErrors, ThrowOnError>({
+    url: '/tools/check_provenance/test',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get Skills Overview
+ *
+ * List built-in skills (with parameters & extra instructions) and all user-defined custom skills.
+ */
+export const getSkillsOverview = <ThrowOnError extends boolean = false>(options?: Options<GetSkillsOverviewData, ThrowOnError>): RequestResult<GetSkillsOverviewResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetSkillsOverviewResponses, unknown, ThrowOnError>({ url: '/skills', ...options });
+
+/**
+ * Update Builtin Skill
+ *
+ * Update a built-in skill's default enabled flag, dedicated parameters, and optional extra instructions.
+ */
+export const updateBuiltinSkill = <ThrowOnError extends boolean = false>(options: Options<UpdateBuiltinSkillData, ThrowOnError>): RequestResult<UpdateBuiltinSkillResponses, UpdateBuiltinSkillErrors, ThrowOnError> => (options.client ?? client).put<UpdateBuiltinSkillResponses, UpdateBuiltinSkillErrors, ThrowOnError>({
+    url: '/skills/builtin/{skill_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Create Custom Skill
+ *
+ * Create a user-defined instruction skill (loaded on demand or eagerly as a pydantic-ai Capability).
+ */
+export const createCustomSkill = <ThrowOnError extends boolean = false>(options: Options<CreateCustomSkillData, ThrowOnError>): RequestResult<CreateCustomSkillResponses, CreateCustomSkillErrors, ThrowOnError> => (options.client ?? client).post<CreateCustomSkillResponses, CreateCustomSkillErrors, ThrowOnError>({
+    url: '/skills/custom',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete Custom Skill
+ *
+ * Delete a user-defined skill.
+ */
+export const deleteCustomSkill = <ThrowOnError extends boolean = false>(options: Options<DeleteCustomSkillData, ThrowOnError>): RequestResult<DeleteCustomSkillResponses, DeleteCustomSkillErrors, ThrowOnError> => (options.client ?? client).delete<DeleteCustomSkillResponses, DeleteCustomSkillErrors, ThrowOnError>({ url: '/skills/custom/{skill_id}', ...options });
+
+/**
+ * Update Custom Skill
+ *
+ * Update an existing user-defined skill.
+ */
+export const updateCustomSkill = <ThrowOnError extends boolean = false>(options: Options<UpdateCustomSkillData, ThrowOnError>): RequestResult<UpdateCustomSkillResponses, UpdateCustomSkillErrors, ThrowOnError> => (options.client ?? client).put<UpdateCustomSkillResponses, UpdateCustomSkillErrors, ThrowOnError>({
+    url: '/skills/custom/{skill_id}',
     ...options,
     headers: {
         'Content-Type': 'application/json',

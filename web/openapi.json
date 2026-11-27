@@ -1114,6 +1114,395 @@
         }
       }
     },
+    "/tools": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Tools Overview",
+        "description": "List all agent tools with their parameters, live readiness diagnostics, and masked standalone secrets.",
+        "operationId": "get_tools_overview",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolsOverviewOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/general": {
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Update General Tool Policy",
+        "description": "Update shared tool execution limits (``request_limit``, ``tool_calls_limit``, ``slow_tools``).",
+        "operationId": "update_general_tool_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeneralToolPolicyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolsOverviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/{tool_id}": {
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Update Tool Config",
+        "description": "Update one tool's global default toggle, slow-tool flag, dedicated parameters, and optional encrypted secret.",
+        "operationId": "update_tool_config",
+        "parameters": [
+          {
+            "name": "tool_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "read_url",
+                "web_search",
+                "read_x",
+                "search_x",
+                "read_file",
+                "view_image",
+                "check_provenance",
+                "search_history",
+                "get_messages_around",
+                "recent_chat",
+                "lookup_glossary",
+                "get_profile",
+                "render_mermaid",
+                "render_markdown",
+                "render_html",
+                "generate_image",
+                "sandbox"
+              ],
+              "type": "string",
+              "title": "Tool Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolConfigPatchIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolsOverviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/check_provenance/test": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Test Provenance Tool",
+        "description": "Test OpenAI Content Provenance connectivity using an optional base64 file or a tiny 1x1 PNG probe.",
+        "operationId": "test_provenance_tool",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvenanceTestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvenanceTestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Skills Overview",
+        "description": "List built-in skills (with parameters & extra instructions) and all user-defined custom skills.",
+        "operationId": "get_skills_overview",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillsOverviewOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills/builtin/{skill_id}": {
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Update Builtin Skill",
+        "description": "Update a built-in skill's default enabled flag, dedicated parameters, and optional extra instructions.",
+        "operationId": "update_builtin_skill",
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuiltinSkillPatchIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillsOverviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills/custom": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Create Custom Skill",
+        "description": "Create a user-defined instruction skill (loaded on demand or eagerly as a pydantic-ai Capability).",
+        "operationId": "create_custom_skill",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomSkillIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomSkillOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skills/custom/{skill_id}": {
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Update Custom Skill",
+        "description": "Update an existing user-defined skill.",
+        "operationId": "update_custom_skill",
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomSkillUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomSkillOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Delete Custom Skill",
+        "description": "Delete a user-defined skill.",
+        "operationId": "delete_custom_skill",
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/kook/connection": {
       "get": {
         "tags": [
@@ -5163,6 +5552,90 @@
         ],
         "title": "BridgeCall"
       },
+      "BuiltinSkillOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "defaults": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Defaults"
+          },
+          "extra_instructions": {
+            "type": "string",
+            "title": "Extra Instructions",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "tools",
+          "enabled"
+        ],
+        "title": "BuiltinSkillOut"
+      },
+      "BuiltinSkillPatchIn": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "extra_instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Instructions"
+          }
+        },
+        "type": "object",
+        "title": "BuiltinSkillPatchIn"
+      },
       "CategoryNode": {
         "properties": {
           "category": {
@@ -5563,6 +6036,200 @@
         },
         "type": "object",
         "title": "ChatMessagesDisplay"
+      },
+      "CustomSkillIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Instructions"
+          },
+          "defer_loading": {
+            "type": "boolean",
+            "title": "Defer Loading",
+            "default": true
+          },
+          "handlers": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "chat",
+                "tldr"
+              ]
+            },
+            "type": "array",
+            "title": "Handlers"
+          },
+          "allow_private": {
+            "type": "boolean",
+            "title": "Allow Private",
+            "default": true
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "default_active": {
+            "type": "boolean",
+            "title": "Default Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "instructions"
+        ],
+        "title": "CustomSkillIn"
+      },
+      "CustomSkillOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Instructions"
+          },
+          "defer_loading": {
+            "type": "boolean",
+            "title": "Defer Loading",
+            "default": true
+          },
+          "handlers": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "chat",
+                "tldr"
+              ]
+            },
+            "type": "array",
+            "title": "Handlers"
+          },
+          "allow_private": {
+            "type": "boolean",
+            "title": "Allow Private",
+            "default": true
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "default_active": {
+            "type": "boolean",
+            "title": "Default Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "instructions"
+        ],
+        "title": "CustomSkillOut"
+      },
+      "CustomSkillUpdateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Instructions"
+          },
+          "defer_loading": {
+            "type": "boolean",
+            "title": "Defer Loading",
+            "default": true
+          },
+          "handlers": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "chat",
+                "tldr"
+              ]
+            },
+            "type": "array",
+            "title": "Handlers"
+          },
+          "allow_private": {
+            "type": "boolean",
+            "title": "Allow Private",
+            "default": true
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "default_active": {
+            "type": "boolean",
+            "title": "Default Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "instructions"
+        ],
+        "title": "CustomSkillUpdateIn"
       },
       "DecideIn": {
         "properties": {
@@ -6284,6 +6951,78 @@
           "synced_at"
         ],
         "title": "ForumThreadOut"
+      },
+      "GeneralToolPolicyIn": {
+        "properties": {
+          "request_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Limit"
+          },
+          "tool_calls_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 200.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls Limit"
+          },
+          "slow_tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slow Tools"
+          }
+        },
+        "type": "object",
+        "title": "GeneralToolPolicyIn"
+      },
+      "GeneralToolPolicyOut": {
+        "properties": {
+          "request_limit": {
+            "type": "integer",
+            "title": "Request Limit"
+          },
+          "tool_calls_limit": {
+            "type": "integer",
+            "title": "Tool Calls Limit"
+          },
+          "slow_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Slow Tools"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_limit",
+          "tool_calls_limit",
+          "slow_tools"
+        ],
+        "title": "GeneralToolPolicyOut"
       },
       "GlossaryIn": {
         "properties": {
@@ -8483,6 +9222,100 @@
         ],
         "title": "PromptVersionOut"
       },
+      "ProvenanceTestIn": {
+        "properties": {
+          "file_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File B64"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "default": ""
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ProvenanceTestIn",
+        "description": "Optional base64-encoded file for real provenance testing; omit to run a lightweight 1x1 PNG probe."
+      },
+      "ProvenanceTestOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint",
+            "default": ""
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "default": ""
+          },
+          "any_detected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Any Detected"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "latency_ms",
+          "source"
+        ],
+        "title": "ProvenanceTestOut"
+      },
       "ProviderIn": {
         "properties": {
           "name": {
@@ -9368,6 +10201,30 @@
         ],
         "title": "ShownImage"
       },
+      "SkillsOverviewOut": {
+        "properties": {
+          "builtin": {
+            "items": {
+              "$ref": "#/components/schemas/BuiltinSkillOut"
+            },
+            "type": "array",
+            "title": "Builtin"
+          },
+          "custom": {
+            "items": {
+              "$ref": "#/components/schemas/CustomSkillOut"
+            },
+            "type": "array",
+            "title": "Custom"
+          }
+        },
+        "type": "object",
+        "required": [
+          "builtin",
+          "custom"
+        ],
+        "title": "SkillsOverviewOut"
+      },
       "SourceRef": {
         "properties": {
           "label": {
@@ -10119,6 +10976,291 @@
           "name"
         ],
         "title": "ToolCallPart"
+      },
+      "ToolConfigPatchIn": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "slow": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slow"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolSecretIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "ToolConfigPatchIn"
+      },
+      "ToolItemOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "read_url",
+              "web_search",
+              "read_x",
+              "search_x",
+              "read_file",
+              "view_image",
+              "check_provenance",
+              "search_history",
+              "get_messages_around",
+              "recent_chat",
+              "lookup_glossary",
+              "get_profile",
+              "render_mermaid",
+              "render_markdown",
+              "render_html",
+              "generate_image",
+              "sandbox"
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "web",
+              "media",
+              "memory",
+              "render",
+              "sandbox"
+            ],
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "handlers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Handlers"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "slow": {
+            "type": "boolean",
+            "title": "Slow"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "warning",
+              "unconfigured",
+              "disabled"
+            ],
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "status_detail": {
+            "type": "string",
+            "title": "Status Detail"
+          },
+          "related_route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Route"
+          },
+          "related_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Label"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "defaults": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Defaults"
+          },
+          "supports_secret": {
+            "type": "boolean",
+            "title": "Supports Secret",
+            "default": false
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolSecretOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "category",
+          "description",
+          "handlers",
+          "enabled",
+          "slow",
+          "status",
+          "status_label",
+          "status_detail"
+        ],
+        "title": "ToolItemOut"
+      },
+      "ToolSecretIn": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "base_url": {
+            "type": "string",
+            "pattern": "^(https?://.*)?$",
+            "title": "Base Url",
+            "default": ""
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "clear_api_key": {
+            "type": "boolean",
+            "title": "Clear Api Key",
+            "default": false
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers"
+          }
+        },
+        "type": "object",
+        "title": "ToolSecretIn"
+      },
+      "ToolSecretOut": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "default": ""
+          },
+          "api_key_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Masked"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers"
+          }
+        },
+        "type": "object",
+        "title": "ToolSecretOut"
+      },
+      "ToolsOverviewOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "general": {
+            "$ref": "#/components/schemas/GeneralToolPolicyOut"
+          },
+          "runtime_flags": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Runtime Flags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "general",
+          "runtime_flags"
+        ],
+        "title": "ToolsOverviewOut"
       },
       "TopicOut": {
         "properties": {
