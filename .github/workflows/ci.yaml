@@ -167,6 +167,7 @@ jobs:
           images: ${{ env.SANDBOX_IMAGE }}
           tags: |
             type=match,pattern=^sandbox-(v\d+\.\d+\.\d+)$,group=1
+            type=raw,value=latest
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -178,10 +179,10 @@ jobs:
           cache-from: type=gha,scope=sandbox
           cache-to: type=gha,mode=max,scope=sandbox
 
-  # Render service image (render/: Markdown/Mermaid/HTML to PNG for the render_* tools), only on render-vX.Y.Z tags.
+  # Render service image (render/: Markdown/Mermaid/HTML to PNG for the render_* tools), on render-vX.Y.Z tags or manual runs.
   render:
     needs: check
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/render-v')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/render-v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -201,6 +202,7 @@ jobs:
           images: ${{ env.RENDER_IMAGE }}
           tags: |
             type=match,pattern=^render-(v\d+\.\d+\.\d+)$,group=1
+            type=raw,value=latest
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -212,11 +214,11 @@ jobs:
           cache-from: type=gha,scope=render
           cache-to: type=gha,mode=max,scope=render
 
-  # Browser service image (browser/Dockerfile: real Chrome for read_url's browser tier), only on browser-vX.Y.Z
-  # tags. Built from the repository root: it copies yggdrasil/browser and the SSRF guard.
+  # Browser service image (browser/Dockerfile: real Chrome for read_url's browser tier), on browser-vX.Y.Z tags or
+  # manual runs. Built from the repository root: it copies yggdrasil/browser and the SSRF guard.
   browser:
     needs: check
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/browser-v')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/browser-v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -236,6 +238,7 @@ jobs:
           images: ${{ env.BROWSER_IMAGE }}
           tags: |
             type=match,pattern=^browser-(v\d+\.\d+\.\d+)$,group=1
+            type=raw,value=latest
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

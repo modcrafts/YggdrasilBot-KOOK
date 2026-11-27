@@ -36,14 +36,17 @@ docker compose -f docker-compose.yml -f docker-compose.lowmem.yml up -d
 
 > 2GB 内存环境下**不要**开启 `render` / `browser` profile（均为 Chromium），并建议挂 2GB swap 作为峰值兜底。
 
-如需开启图片渲染（`render_*` 工具）或浏览器抓网页（`read_url` Chrome 兜底），先在 `.env` 取消对应 `YGG_RENDER_URL` / `YGG_BROWSER_URL` 注释，再带 profile 启动：
+如需要开启图片渲染（`render_*` 工具）或浏览器抓网页（`read_url` Chrome 兜底），先在 `.env` 取消 `YGG_RENDER_URL` / `YGG_BROWSER_URL` 注释（也可顺手取消 `COMPOSE_PROFILES=full` 注释，后续就不用每次敲 `--profile`），再直接拉取 GHCR 预构建镜像启动（无需本地构建）：
 
 ```bash
 # 仅加 render
-docker compose --profile render up -d --build
+docker compose --profile render pull && docker compose --profile render up -d
 # 同时加 render + browser
-docker compose --profile full up -d --build
+docker compose --profile full pull && docker compose --profile full up -d
 ```
+
+> 注：如果 GHCR 镜像包是 Private，拉取前先执行 `echo <GITHUB_PAT> | docker login ghcr.io -u <GitHub用户名> --password-stdin`。
+> 另外，**`sandbox` 工作区服务目前仅支持 Kubernetes**（依赖 `kubernetes-sigs/agent-sandbox` CRD 与 gVisor，参见 [`deploy/README.md`](../README.md#9-sandbox-workspaces-optional)），不在 Docker Compose 中提供。
 
 ## 3. 控制台访问与鉴权
 

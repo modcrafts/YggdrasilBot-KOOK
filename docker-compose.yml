@@ -1,14 +1,14 @@
 # Production Docker Compose deployment for YggdrasilBot-KOOK.
 #
-# Quick start:
+# Quick start (pull prebuilt GHCR images):
 #   1. cp .env.compose.example .env
 #   2. Edit .env (POSTGRES_PASSWORD, YGG_SECRET_KEY, YGG_SUPERUSERS, YGG_ADMIN_EMAILS)
-#   3. docker compose up -d --build
+#   3. docker compose pull && docker compose up -d
 #
-# Optional services via Compose profiles:
-#   - Markdown/Mermaid/HTML image rendering: docker compose --profile render up -d --build
-#   - Real-Chrome browser fetcher:           docker compose --profile browser up -d --build
-#   - Both optional services:                docker compose --profile full up -d --build
+# Optional services via Compose profiles (prebuilt on GHCR; set COMPOSE_PROFILES=full in .env to avoid passing --profile):
+#   - Markdown/Mermaid/HTML image rendering: docker compose --profile render pull && docker compose --profile render up -d
+#   - Real-Chrome browser fetcher:           docker compose --profile browser pull && docker compose --profile browser up -d
+#   - Both optional services:                docker compose --profile full pull && docker compose --profile full up -d
 # (Also uncomment YGG_RENDER_URL / YGG_BROWSER_URL in .env when enabling those profiles.)
 
 x-app-common: &app-common
@@ -130,7 +130,7 @@ services:
   # Optional: render_markdown / render_mermaid / render_html -> PNG.
   render:
     profiles: ["render", "full"]
-    image: yggdrasil-render:${YGG_IMAGE_TAG:-latest}
+    image: ${YGG_RENDER_IMAGE:-ghcr.io/modcrafts/yggdrasil-render:latest}
     build:
       context: ./render
       dockerfile: Dockerfile
@@ -147,7 +147,7 @@ services:
   # Optional: headed Chrome under Xvfb for read_url's JS/anti-bot tier.
   browser:
     profiles: ["browser", "full"]
-    image: yggdrasil-browser:${YGG_IMAGE_TAG:-latest}
+    image: ${YGG_BROWSER_IMAGE:-ghcr.io/modcrafts/yggdrasil-browser:latest}
     build:
       context: .
       dockerfile: browser/Dockerfile
