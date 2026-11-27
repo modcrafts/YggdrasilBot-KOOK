@@ -6,11 +6,14 @@ reverse-proxied public HTTPS) and posts execution outcomes back to ``/bridge/gmo
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from yggdrasil.kv import redis_client
 from yggdrasil.runtime import snapshot
@@ -20,6 +23,7 @@ _QUEUE_TTL_S = 120
 _RESULT_TTL_S = 60
 _MAX_BATCH = 8
 MAX_POLL_WAIT_S = 25
+_REDIS_BLOCK_GRACE_S = 2
 
 
 class GModError(RuntimeError):
@@ -136,12 +140,18 @@ async def get_heartbeat(server_id: str) -> GModHeartbeat | None:
     )
 
 
+async def _blocking_pop(key: str, wait_s: int) -> Any:
+    # Let Redis finish its own blocking wait, allowing some time for network I/O.
+    async with asyncio.timeout(wait_s + _REDIS_BLOCK_GRACE_S):
+        return await redis_client(blocking=True).blpop([key], timeout=wait_s)
+
+
 async def pop_jobs(server_id: str, *, wait_s: float = MAX_POLL_WAIT_S) -> list[dict[str, Any]]:
     """Wait for queued jobs, drain a bounded batch, and discard expired jobs before delivery."""
     r = redis_client()
     qkey = _queue_key(server_id)
     timeout = max(0, min(round(wait_s), MAX_POLL_WAIT_S))
-    first = await r.blpop([qkey], timeout=timeout) if timeout > 0 else await r.lpop(qkey)
+    first = await _blocking_pop(qkey, timeout) if timeout > 0 else await r.lpop(qkey)
     raw_items: list[Any] = []
     if timeout > 0:
         if isinstance(first, list | tuple) and len(first) == 2:
@@ -244,11 +254,15 @@ async def call(
     await r.expire(qkey, _QUEUE_TTL_S)
 
     rkey = _res_key(job_id)
-    raw = await r.blpop([rkey], timeout=wait_int)
+    timeout_message = f"等待 GMod 服务器「{sid}」返回 {act} 回执超时（{wait_int}s），执行结果未知"
+    try:
+        raw = await _blocking_pop(rkey, wait_int)
+    except (TimeoutError, RedisTimeoutError) as e:
+        raise GModTimeout(timeout_message) from e
     latency_ms = int((time.perf_counter() - started) * 1000)
     if not (isinstance(raw, list | tuple) and len(raw) == 2):
         await r.delete(_owner_key(job_id))
-        raise GModTimeout(f"等待 GMod 服务器「{sid}」执行 {act} 超时（{wait_int}s）")
+        raise GModTimeout(timeout_message)
 
     try:
         body = json.loads(str(raw[1]))

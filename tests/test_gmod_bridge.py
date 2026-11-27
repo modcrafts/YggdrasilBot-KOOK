@@ -10,16 +10,32 @@ from typing import cast
 
 import httpx
 import pytest
+import redis.asyncio as aioredis
 from pydantic_ai import RunContext
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 
+from yggdrasil import kv
 from yggdrasil.gmod import bridge as gmod_bridge
 from yggdrasil.gmod import server as gmod_server
 from yggdrasil.kook.client import Kook
 from yggdrasil.ops import tools as ops_tools_mod
 from yggdrasil.ops.tools import OpsDeps, gmod_ping, gmod_servers
 from yggdrasil.runtime import GModServerInfo
+
+
+def test_blocking_reads_use_a_separate_redis_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kv, "aioredis", aioredis)
+    monkeypatch.setattr(kv, "REDIS_CONFIG", SimpleNamespace(url="redis://redis/0?socket_timeout=5"))
+    kv.redis_client.cache_clear()
+    try:
+        normal = kv.redis_client().connection_pool
+        blocking = kv.redis_client(blocking=True).connection_pool
+        assert blocking is not normal
+        assert blocking.make_connection().socket_timeout is None
+        assert normal.make_connection().socket_timeout == 5
+    finally:
+        kv.redis_client.cache_clear()
 
 
 class _FakeRedis:
@@ -95,7 +111,7 @@ def gmod_env(monkeypatch: pytest.MonkeyPatch) -> _FakeRedis:
         "off": GModServerInfo(id="off", name="停用服", enabled=False, token="tok-off-secret", note=""),
     }
     snap = SimpleNamespace(gmod_servers=servers)
-    monkeypatch.setattr(gmod_bridge, "redis_client", lambda: fake_redis)
+    monkeypatch.setattr(gmod_bridge, "redis_client", lambda **_: fake_redis)
     monkeypatch.setattr(gmod_bridge, "snapshot", lambda: snap)
     monkeypatch.setattr(gmod_server, "snapshot", lambda: snap)
     monkeypatch.setattr(ops_tools_mod, "snapshot", lambda: snap)
