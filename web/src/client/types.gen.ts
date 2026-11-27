@@ -345,6 +345,12 @@ export type ChannelIn = {
      */
     is_category?: boolean;
     /**
+     * Channel Type
+     *
+     * 频道类型：0 分组 / 1 文字频道 / 4 帖子频道（省略时保持原值）
+     */
+    channel_type?: number | null;
+    /**
      * Enabled
      *
      * 启用开关：true 启用 / false 停用 / null 继承所属分组（分组或无分组频道为 null 时视为停用）
@@ -392,6 +398,10 @@ export type ChannelOut = {
      * Is Category
      */
     is_category: boolean;
+    /**
+     * Channel Type
+     */
+    channel_type?: number;
     /**
      * Enabled
      */
@@ -777,6 +787,86 @@ export type FactOut = {
      * Locked
      */
     locked: boolean;
+};
+
+/**
+ * ForumSyncOut
+ */
+export type ForumSyncOut = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Synced
+     */
+    synced: number;
+};
+
+/**
+ * ForumThreadOut
+ */
+export type ForumThreadOut = {
+    /**
+     * Thread Id
+     */
+    thread_id: string;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Guild Id
+     */
+    guild_id: string;
+    /**
+     * Category Id
+     */
+    category_id: string | null;
+    /**
+     * Category Name
+     */
+    category_name: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Author Id
+     */
+    author_id: string;
+    /**
+     * Author Name
+     */
+    author_name: string;
+    /**
+     * Preview Text
+     */
+    preview_text: string;
+    /**
+     * Tags
+     */
+    tags: Array<string>;
+    /**
+     * Post Count
+     */
+    post_count: number;
+    /**
+     * Collect Num
+     */
+    collect_num: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Latest Active Time
+     */
+    latest_active_time: string;
+    /**
+     * Synced At
+     */
+    synced_at: string;
 };
 
 /**
@@ -3064,6 +3154,10 @@ export type SyncOut = {
      * Channels
      */
     channels: number;
+    /**
+     * Forums
+     */
+    forums?: number;
 };
 
 /**
@@ -4687,6 +4781,78 @@ export type BackfillChannelResponses = {
 };
 
 export type BackfillChannelResponse = BackfillChannelResponses[keyof BackfillChannelResponses];
+
+export type ListForumChannelThreadsData = {
+    body?: never;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/channels/{channel_id}/threads';
+};
+
+export type ListForumChannelThreadsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListForumChannelThreadsError = ListForumChannelThreadsErrors[keyof ListForumChannelThreadsErrors];
+
+export type ListForumChannelThreadsResponses = {
+    /**
+     * Response List Forum Channel Threads
+     *
+     * Successful Response
+     */
+    200: Array<ForumThreadOut>;
+};
+
+export type ListForumChannelThreadsResponse = ListForumChannelThreadsResponses[keyof ListForumChannelThreadsResponses];
+
+export type SyncForumChannelThreadsData = {
+    body?: never;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/channels/{channel_id}/sync-threads';
+};
+
+export type SyncForumChannelThreadsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SyncForumChannelThreadsError = SyncForumChannelThreadsErrors[keyof SyncForumChannelThreadsErrors];
+
+export type SyncForumChannelThreadsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ForumSyncOut;
+};
+
+export type SyncForumChannelThreadsResponse = SyncForumChannelThreadsResponses[keyof SyncForumChannelThreadsResponses];
 
 export type GetTriggerMetaData = {
     body?: never;

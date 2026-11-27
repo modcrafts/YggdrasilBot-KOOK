@@ -16,7 +16,7 @@ from yggdrasil.db.models import Channel, Guild, SettingsDoc
 from yggdrasil.db.session import get_session
 from yggdrasil.kook import client as kook_client
 from yggdrasil.kook import gateway as kook_gateway
-from yggdrasil.kook.model import KookError
+from yggdrasil.kook.model import CHANNEL_CATEGORY, CHANNEL_TEXT, CHANNEL_THREAD, KookError
 from yggdrasil.runtime import snapshot
 
 router = APIRouter(prefix="/kook", tags=["kook"])
@@ -62,6 +62,7 @@ class SyncOut(BaseModel):
     guilds: int
     categories: int
     channels: int
+    forums: int = 0
 
 
 class GuildRoleOut(BaseModel):
@@ -213,7 +214,7 @@ async def sync_kook_structure(actor: Actor) -> SyncOut:
     except KookError as e:
         raise conflict(f"从 KOOK 同步失败：{e}") from e
 
-    n_guilds = n_cats = n_chs = 0
+    n_guilds = n_cats = n_chs = n_forums = 0
     async with change(actor, "kook", "sync", "all") as c:
         existing_guilds = {g.guild_id: g for g in (await c.session.scalars(select(Guild))).all()}
         existing_channels = {ch.channel_id: ch for ch in (await c.session.scalars(select(Channel))).all()}
@@ -228,12 +229,15 @@ async def sync_kook_structure(actor: Actor) -> SyncOut:
             await c.session.flush()
             live_ids: set[str] = set()
             for ch in guild_channels.get(g.guild_id, []):
-                # Keep categories (is_category=True / type=0) and text channels (type=1).
-                if not ch.is_category and ch.type != 1:
+                # Keep categories (is_category=True / type=0), text channels (type=1), and forum channels (type=4).
+                if not ch.is_category and ch.type not in (CHANNEL_TEXT, CHANNEL_THREAD):
                     continue
                 live_ids.add(ch.channel_id)
+                ctype = CHANNEL_CATEGORY if ch.is_category else ch.type
                 if ch.is_category:
                     n_cats += 1
+                elif ctype == CHANNEL_THREAD:
+                    n_forums += 1
                 else:
                     n_chs += 1
                 crow = existing_channels.get(ch.channel_id)
@@ -248,7 +252,8 @@ async def sync_kook_structure(actor: Actor) -> SyncOut:
                             topic=ch.topic,
                             position=ch.level,
                             is_category=ch.is_category,
-                            # Categories default disabled; grouped text channels inherit (None).
+                            channel_type=ctype,
+                            # Categories default disabled; grouped text/forum channels inherit (None).
                             enabled=False if (ch.is_category or parent_id is None) else None,
                             settings={},
                         )
@@ -260,8 +265,9 @@ async def sync_kook_structure(actor: Actor) -> SyncOut:
                     crow.topic = ch.topic
                     crow.position = ch.level
                     crow.is_category = ch.is_category
+                    crow.channel_type = ctype
             for cid, crow in existing_channels.items():
                 if crow.guild_id == g.guild_id and cid not in live_ids:
                     await c.session.delete(crow)
-        c.detail = {"guilds": n_guilds, "categories": n_cats, "channels": n_chs}
-    return SyncOut(guilds=n_guilds, categories=n_cats, channels=n_chs)
+        c.detail = {"guilds": n_guilds, "categories": n_cats, "channels": n_chs, "forums": n_forums}
+    return SyncOut(guilds=n_guilds, categories=n_cats, channels=n_chs, forums=n_forums)

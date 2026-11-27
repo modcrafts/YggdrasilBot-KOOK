@@ -7,6 +7,8 @@ from yggdrasil.kook import segments as seg
 from yggdrasil.kook.client import Kook
 from yggdrasil.kook.model import (
     Channel,
+    ForumPost,
+    ForumThread,
     Guild,
     GuildEmoji,
     Incoming,
@@ -15,6 +17,7 @@ from yggdrasil.kook.model import (
     Member,
     Message,
     Sender,
+    ThreadCategory,
 )
 
 
@@ -47,6 +50,11 @@ class FakeKook(Kook):
     recalled: list[tuple[str | None, str]] = field(default_factory=list)
     raw_calls: list[tuple[str, str, dict[str, Any] | None]] = field(default_factory=list)
     raw_responses: dict[tuple[str, str], Any] = field(default_factory=dict)
+    thread_category_map: dict[str, list[ThreadCategory]] = field(default_factory=dict)
+    forum_thread_map: dict[str, list[ForumThread]] = field(default_factory=dict)
+    forum_post_map: dict[tuple[str, str | None], list[ForumPost]] = field(default_factory=dict)
+    invalidated_meta: list[str] = field(default_factory=list)
+    invalidated_emojis: list[str] = field(default_factory=list)
     _seq: int = 0
 
     @property
@@ -176,6 +184,50 @@ class FakeKook(Kook):
         if key in self.raw_responses:
             return self.raw_responses[key]
         return {}
+
+    def invalidate_guild_meta(self, guild_id: str) -> None:
+        self.invalidated_meta.append(guild_id)
+
+    def invalidate_guild_emojis(self, guild_id: str) -> None:
+        self.invalidated_emojis.append(guild_id)
+
+    async def thread_categories(self, channel_id: str) -> list[ThreadCategory]:
+        return list(self.thread_category_map.get(channel_id, ()))
+
+    async def forum_threads(
+        self,
+        channel_id: str,
+        *,
+        guild_id: str | None = None,
+        category_id: str | None = None,
+        sort: int = 1,
+        time_ms: int | None = None,
+        limit: int = 20,
+    ) -> list[ForumThread]:
+        rows = list(self.forum_thread_map.get(channel_id, ()))
+        if category_id:
+            rows = [t for t in rows if t.category is not None and t.category.id == category_id]
+        return rows[:limit]
+
+    async def forum_thread(
+        self, channel_id: str, thread_id: str, *, guild_id: str | None = None
+    ) -> ForumThread:
+        for t in self.forum_thread_map.get(channel_id, ()):
+            if t.thread_id == thread_id:
+                return t
+        raise KookError(f"forum thread not found: {thread_id}")
+
+    async def forum_posts(
+        self,
+        channel_id: str,
+        thread_id: str,
+        *,
+        post_id: str | None = None,
+        order: int = 1,
+        page: int = 1,
+        limit: int = 20,
+    ) -> list[ForumPost]:
+        return list(self.forum_post_map.get((thread_id, post_id), ()))[:limit]
 
 
 def make_sender(

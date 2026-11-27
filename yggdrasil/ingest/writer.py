@@ -180,5 +180,36 @@ class IngestWriter:
                     {"ids": ids},
                 )
 
+    async def update_message_content(
+        self, channel_id: str, kook_message_id: str, content: str, *, guild_id: str = ""
+    ) -> None:
+        """Update stored text & segments when KOOK pushes an ``updated_message`` edit event."""
+        from yggdrasil.kook.parser import parse_kmarkdown
+
+        await self.flush()
+        segs = strip_nul(parse_kmarkdown(content, guild_id=guild_id))
+        norm = normalize(segs)
+        async with get_session() as session:
+            result = await session.execute(
+                update(Message)
+                .where(
+                    Message.channel_id == channel_id,
+                    Message.kook_message_id == kook_message_id,
+                    Message.recalled.is_(False),
+                    Message.sent_at > func.now() - text("interval '30 days'"),
+                )
+                .values(plain_text=norm.text, segments=segs)
+                .returning(Message.id)
+            )
+            ids = [r[0] for r in result]
+            if ids:
+                await session.execute(
+                    text(
+                        "UPDATE topics SET dirty = true WHERE id IN "
+                        "(SELECT topic_id FROM topic_messages WHERE message_id = ANY(:ids))"
+                    ),
+                    {"ids": ids},
+                )
+
 
 WRITER = IngestWriter()

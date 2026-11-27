@@ -1,4 +1,4 @@
-from yggdrasil.db.models.chat import Message, Sticker, StickerBlob, StickerDrop, StickerUsage, UserAlias
+from yggdrasil.db.models.chat import KookThread, Message, Sticker, StickerBlob, StickerDrop, StickerUsage, UserAlias
 from yggdrasil.db.models.config import (
     Admin,
     Channel,
@@ -49,6 +49,7 @@ __all__ = [
     "Guild",
     "Invocation",
     "InvocationSession",
+    "KookThread",
     "MemoryVector",
     "Message",
     "MessageChunk",

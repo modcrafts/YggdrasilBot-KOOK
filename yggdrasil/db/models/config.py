@@ -73,7 +73,7 @@ class Guild(Base, TimestampMixin):
 
 
 class Channel(Base, TimestampMixin):
-    """A KOOK category (``is_category=True``) or text channel (``is_category=False``).
+    """A KOOK category (``is_category=True``), text channel (``channel_type=1``), or forum/thread channel (``4``).
 
     Inherits ``enabled`` and ``settings`` along ``global -> guild -> category -> channel``.
     ``enabled`` is tri-state: ``None`` inherits from parent category (or defaults False if uncategorized);
@@ -87,6 +87,7 @@ class Channel(Base, TimestampMixin):
     guild_id: Mapped[str] = mapped_column(Text)
     parent_id: Mapped[str | None] = mapped_column(Text)
     is_category: Mapped[bool] = mapped_column(Boolean, default=False)
+    channel_type: Mapped[int] = mapped_column(default=1, server_default="1")  # 0=category, 1=text, 4=thread/forum
     position: Mapped[int] = mapped_column(default=0)
     name: Mapped[str] = mapped_column(Text, default="")
     topic: Mapped[str] = mapped_column(Text, default="", server_default="")

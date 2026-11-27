@@ -105,3 +105,60 @@ async def test_asset_create_uploads_multipart():
     rest = _rest(handler)
     url = await rest.asset_create(b"fake-png", "pic.png")
     assert url == "https://img.kookapp.cn/assets/abc.png"
+
+
+async def test_thread_and_extended_rest_endpoints():
+    calls: list[tuple[str, str, dict[str, str], dict[str, Any] | None]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content) if req.content else None
+        calls.append((req.method, req.url.path, dict(req.url.params), body))
+        if req.url.path.endswith("/category/list"):
+            return httpx.Response(200, json={"code": 0, "data": {"list": [{"id": "cat-1", "name": "攻略"}]}})
+        if req.url.path.endswith("/thread/list"):
+            return httpx.Response(200, json={"code": 0, "data": {"items": [{"id": "th-1", "title": "指南"}]}})
+        if req.url.path.endswith("/thread/view"):
+            return httpx.Response(200, json={"code": 0, "data": {"id": "th-1", "title": "指南", "content": "[]"}})
+        if req.url.path.endswith("/thread/post"):
+            return httpx.Response(200, json={"code": 0, "data": {"items": [{"id": "p-1", "content": "[]"}]}})
+        if req.url.path.endswith("/guild/user-list"):
+            return httpx.Response(
+                200, json={"code": 0, "data": {"items": [{"id": "u-1"}], "meta": {"page": 1, "page_total": 1}}}
+            )
+        if req.url.path.endswith("/message/reaction-list"):
+            return httpx.Response(200, json={"code": 0, "data": [{"id": "u-1", "username": "alice"}]})
+        return httpx.Response(200, json={"code": 0, "data": {"id": "ok"}})
+
+    rest = _rest(handler)
+    cats = await rest.thread_category_list("ch-forum")
+    assert cats == [{"id": "cat-1", "name": "攻略"}]
+
+    threads = await rest.thread_list("ch-forum", category_id="cat-1", sort=2, time_ms=1700000000000, page_size=10)
+    assert threads == [{"id": "th-1", "title": "指南"}]
+    # Verify KOOK camelCase quirk: categoryId (not category_id)
+    assert calls[1][2] == {
+        "channel_id": "ch-forum",
+        "sort": "2",
+        "page_size": "10",
+        "categoryId": "cat-1",
+        "time": "1700000000000",
+    }
+
+    detail = await rest.thread_view("ch-forum", "th-1")
+    assert detail["id"] == "th-1"
+
+    posts = await rest.thread_post_list("ch-forum", "th-1", post_id="p-0", order=2, page=2, page_size=15)
+    assert posts == [{"id": "p-1", "content": "[]"}]
+    assert calls[3][2]["post_id"] == "p-0"
+
+    await rest.message_update("m-1", "new content", quote="q-1")
+    assert calls[4][1] == "/api/v3/message/update"
+    assert calls[4][3] == {"msg_id": "m-1", "content": "new content", "quote": "q-1"}
+
+    reactors = await rest.message_reaction_list("m-1", "👍")
+    assert reactors == [{"id": "u-1", "username": "alice"}]
+
+    members = await rest.guild_user_list("g-1", search="alice", role_id=7)
+    assert members == [{"id": "u-1"}]
+    assert calls[6][2]["search"] == "alice"
+    assert calls[6][2]["role_id"] == "7"

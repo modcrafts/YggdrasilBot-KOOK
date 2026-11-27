@@ -10,8 +10,11 @@ from sqlalchemy import select
 from yggdrasil.admin.auth import Actor
 from yggdrasil.admin.common import Ok, change, conflict, not_found, unavailable
 from yggdrasil.admin.settings_api import global_doc, validate_layers
-from yggdrasil.db.models import Channel, Guild
+from yggdrasil.db.models import Channel, Guild, KookThread
 from yggdrasil.db.session import get_session
+from yggdrasil.forum import list_cached_threads, sync_forum_channel
+from yggdrasil.kook import client as kook_client
+from yggdrasil.kook.model import CHANNEL_CATEGORY, CHANNEL_TEXT, CHANNEL_THREAD, KookError
 
 router = APIRouter(prefix="/channels", tags=["channels"])
 
@@ -41,6 +44,7 @@ class ChannelOut(BaseModel):
     topic: str
     position: int
     is_category: bool
+    channel_type: int = CHANNEL_TEXT
     enabled: bool | None
     effective_enabled: bool
     settings: dict[str, Any]
@@ -56,11 +60,35 @@ class ChannelIn(BaseModel):
     topic: str = ""
     position: int = 0
     is_category: bool = False
+    channel_type: int | None = Field(None, description="频道类型：0 分组 / 1 文字频道 / 4 帖子频道（省略时保持原值）")
     enabled: bool | None = Field(
         None,
         description="启用开关：true 启用 / false 停用 / null 继承所属分组（分组或无分组频道为 null 时视为停用）",
     )
     settings: dict[str, Any] | None = Field(None, description="省略则保留原有覆盖")
+
+
+class ForumThreadOut(BaseModel):
+    thread_id: str
+    channel_id: str
+    guild_id: str
+    category_id: str | None
+    category_name: str
+    title: str
+    author_id: str
+    author_name: str
+    preview_text: str
+    tags: list[str]
+    post_count: int
+    collect_num: int
+    created_at: datetime
+    latest_active_time: datetime
+    synced_at: datetime
+
+
+class ForumSyncOut(BaseModel):
+    channel_id: str
+    synced: int
 
 
 class CategoryNode(BaseModel):
@@ -108,12 +136,33 @@ def _channel_out(c: Channel, guilds: dict[str, Guild], channels: dict[str, Chann
         topic=c.topic,
         position=c.position,
         is_category=c.is_category,
+        channel_type=CHANNEL_CATEGORY if c.is_category else c.channel_type,
         enabled=c.enabled,
         effective_enabled=_effective_enabled(c, guilds, channels),
         settings=dict(c.settings),
         backfilled_at=c.backfilled_at,
         created_at=c.created_at,
         updated_at=c.updated_at,
+    )
+
+
+def _thread_out(t: KookThread) -> ForumThreadOut:
+    return ForumThreadOut(
+        thread_id=t.thread_id,
+        channel_id=t.channel_id,
+        guild_id=t.guild_id,
+        category_id=t.category_id,
+        category_name=t.category_name,
+        title=t.title,
+        author_id=t.author_id,
+        author_name=t.author_name,
+        preview_text=t.preview_text,
+        tags=list(t.tags or ()),
+        post_count=t.post_count,
+        collect_num=t.collect_num,
+        created_at=t.created_at,
+        latest_active_time=t.latest_active_time,
+        synced_at=t.synced_at,
     )
 
 
@@ -233,6 +282,10 @@ async def upsert_channel(channel_id: str, body: ChannelIn, actor: Actor) -> Chan
         row.topic = body.topic.strip()
         row.position = body.position
         row.is_category = body.is_category
+        if body.is_category:
+            row.channel_type = CHANNEL_CATEGORY
+        elif body.channel_type is not None:
+            row.channel_type = body.channel_type
         row.enabled = body.enabled
         if body.settings is not None:
             row.settings = body.settings
@@ -266,10 +319,41 @@ async def backfill_channel(channel_id: str, actor: Actor) -> Ok:
         raise unavailable(f"回填模块不可用: {e}") from e
     async with get_session() as s:
         ch = await s.get(Channel, channel_id)
-        if ch is None or ch.is_category:
+        if ch is None or ch.is_category or ch.channel_type == CHANNEL_THREAD:
             raise not_found(f"文字频道 {channel_id}")
     if not request_backfill(channel_id):
         raise conflict("这个频道的回填正在进行中")
     async with change(actor, "channel", "backfill", channel_id):
         pass
     return Ok()
+
+
+@router.get("/{channel_id}/threads")
+async def list_forum_channel_threads(channel_id: str, limit: int = 50) -> list[ForumThreadOut]:
+    """Return cached threads of a KOOK forum channel (``channel_type = 4``)."""
+    async with get_session() as s:
+        ch = await s.get(Channel, channel_id)
+        if ch is None or ch.is_category or ch.channel_type != CHANNEL_THREAD:
+            raise not_found(f"帖子频道 {channel_id}")
+    rows = await list_cached_threads(channel_id, limit=limit)
+    return [_thread_out(r) for r in rows]
+
+
+@router.post("/{channel_id}/sync-threads")
+async def sync_forum_channel_threads(channel_id: str, actor: Actor, limit: int = 30) -> ForumSyncOut:
+    """Pull latest threads of a KOOK forum channel into the ``kook_threads`` cache table."""
+    live = kook_client.connected()
+    if live is None:
+        raise unavailable("KOOK 机器人尚未连接")
+    async with get_session() as s:
+        ch = await s.get(Channel, channel_id)
+        if ch is None or ch.is_category or ch.channel_type != CHANNEL_THREAD:
+            raise not_found(f"帖子频道 {channel_id}")
+        guild_id = ch.guild_id
+    try:
+        threads = await sync_forum_channel(live, channel_id, guild_id=guild_id, limit=limit)
+    except KookError as e:
+        raise conflict(f"同步帖子列表失败：{e}") from e
+    async with change(actor, "channel", "sync_threads", channel_id) as c:
+        c.detail = {"synced": len(threads)}
+    return ForumSyncOut(channel_id=channel_id, synced=len(threads))

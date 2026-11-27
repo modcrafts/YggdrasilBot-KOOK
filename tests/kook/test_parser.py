@@ -2,7 +2,15 @@
 
 import json
 
-from yggdrasil.kook.parser import parse_incoming, parse_observed, parse_recalled, parse_rest_message
+from yggdrasil.kook.parser import (
+    parse_forum_post,
+    parse_forum_thread,
+    parse_incoming,
+    parse_observed,
+    parse_recalled,
+    parse_rest_message,
+    parse_updated_message,
+)
 
 
 def test_parse_kmarkdown_mentions_channels_emojis_and_quote():
@@ -172,3 +180,158 @@ def test_parse_recalled_and_observed_system_events():
     assert obs is not None
     assert obs.kind == "kook.self_joined_guild"
     assert obs.guild_id == "g-9"
+
+
+def test_parse_updated_message_and_batch_channel_and_cache_events():
+    edited = {
+        "type": 255,
+        "target_id": "ch-1",
+        "msg_timestamp": 1_700_000_500_000,
+        "extra": {
+            "type": "updated_message",
+            "body": {
+                "msg_id": "msg-1",
+                "channel_id": "ch-1",
+                "content": "修改后的消息",
+                "updated_at": 1_700_000_500_000,
+            },
+        },
+    }
+    assert parse_updated_message(edited) == ("ch-1", "msg-1", "修改后的消息", 1_700_000_500)
+
+    batch_added = {
+        "type": 255,
+        "target_id": "g-1",
+        "extra": {
+            "type": "batch_added_channel",
+            "body": [
+                {"id": "ch-a", "guild_id": "g-1", "name": "帖子区", "type": 4},
+                {"id": "ch-b", "guild_id": "g-1", "name": "聊天区", "type": 1},
+            ],
+        },
+    }
+    obs_add = parse_observed(batch_added)
+    assert obs_add is not None
+    assert obs_add.kind == "kook.batch_added_channel"
+    assert obs_add.guild_id == "g-1"
+    assert len(obs_add.data["items"]) == 2
+
+    batch_deleted = {
+        "type": 255,
+        "target_id": "g-1",
+        "extra": {"type": "batch_deleted_channel", "body": [{"id": "ch-a"}, {"id": "ch-b"}]},
+    }
+    obs_del = parse_observed(batch_deleted)
+    assert obs_del is not None
+    assert obs_del.kind == "kook.batch_deleted_channel"
+    assert [x["id"] for x in obs_del.data["items"]] == ["ch-a", "ch-b"]
+
+    role_ev = {
+        "type": 255,
+        "target_id": "g-1",
+        "extra": {"type": "updated_role", "body": {"role_id": 42, "name": "管理"}},
+    }
+    obs_role = parse_observed(role_ev)
+    assert obs_role is not None
+    assert obs_role.kind == "kook.updated_role"
+    assert obs_role.guild_id == "g-1"
+
+
+def test_parse_forum_thread_and_nested_posts():
+    card_content = json.dumps(
+        [
+            {
+                "type": "card",
+                "theme": "invisible",
+                "modules": [
+                    {"type": "section", "text": {"type": "kmarkdown", "content": "这是帖子**完整正文**"}},
+                    {"type": "container", "elements": [{"type": "image", "src": "https://img.kookapp.cn/p1.png"}]},
+                ],
+            }
+        ]
+    )
+    # 1. /thread/list summary (content=None) falls back to preview_content
+    summary = parse_forum_thread(
+        {
+            "id": "th-1",
+            "title": "新手攻略",
+            "preview_content": "先看这里",
+            "content": None,
+            "create_time": 1_700_000_000_000,
+            "latest_active_time": 1_700_000_900_000,
+            "post_count": 3,
+            "user": {"id": "u-1", "username": "alice", "is_master": True, "identify_num": "1234", "online": True},
+            "category": {"id": "c-1", "name": "教程"},
+            "tags": [{"id": 9, "name": "精华"}],
+        },
+        channel_id="ch-forum",
+        guild_id="g-1",
+    )
+    assert summary.content is None
+    assert summary.content_text == "先看这里"
+    assert summary.author.role == "owner"
+    assert summary.author.identify_num == "1234"
+    assert summary.category is not None
+    assert summary.category.name == "教程"
+    assert [t.name for t in summary.tags] == ["精华"]
+
+    # 2. /thread/view full payload decodes CardMessage JSON & image segments
+    detail = parse_forum_thread(
+        {
+            "id": "th-1",
+            "post_id": "p-main",
+            "title": "新手攻略",
+            "preview_content": "先看这里",
+            "content": card_content,
+            "create_time": 1_700_000_000_000,
+            "latest_active_time": 1_700_000_900_000,
+            "post_count": 3,
+            "collect_num": 5,
+            "user": {"id": "u-1", "username": "alice"},
+            "medias": [{"type": 1, "src": "https://img.kookapp.cn/m1.png", "title": "截图"}],
+        },
+        channel_id="ch-forum",
+        guild_id="g-1",
+    )
+    assert "完整正文" in detail.content_text
+    assert any(
+        s["type"] == "image" and s["data"]["url"] == "https://img.kookapp.cn/p1.png"
+        for s in detail.content_segments
+    )
+    assert detail.medias[0].src == "https://img.kookapp.cn/m1.png"
+
+    # 3. /thread/post parses comment + nested floor replies
+    reply_card = json.dumps(
+        [
+            {
+                "type": "card",
+                "theme": "invisible",
+                "modules": [{"type": "section", "text": {"type": "kmarkdown", "content": "赞！"}}],
+            }
+        ]
+    )
+    post = parse_forum_post(
+        {
+            "id": "p-10",
+            "thread_id": "th-1",
+            "content": card_content,
+            "create_time": 1_700_000_100_000,
+            "user": {"id": "u-2", "username": "bob"},
+            "replies": [
+                {
+                    "id": "p-11",
+                    "thread_id": "th-1",
+                    "belong_to_post_id": "p-10",
+                    "reply_id": "p-10",
+                    "content": reply_card,
+                    "create_time": 1_700_000_200_000,
+                    "user": {"id": "u-3", "username": "carol"},
+                }
+            ],
+        }
+    )
+    assert post.post_id == "p-10"
+    assert "完整正文" in post.content_text
+    assert len(post.replies) == 1
+    assert post.replies[0].content_text == "赞！"
+    assert post.replies[0].belong_to_post_id == "p-10"

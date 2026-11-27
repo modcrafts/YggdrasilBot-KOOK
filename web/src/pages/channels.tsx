@@ -6,6 +6,7 @@ import {
   DownloadIcon,
   FolderIcon,
   HashIcon,
+  MessagesSquareIcon,
   PlusIcon,
   RefreshCwIcon,
   ServerIcon,
@@ -24,6 +25,7 @@ import {
   getSettingsSchemaOptions,
   listKookGuildRolesOptions,
   putScopeSettingsMutation,
+  syncForumChannelThreadsMutation,
   syncKookStructureMutation,
   upsertChannelMutation,
   upsertGuildMutation,
@@ -81,13 +83,21 @@ export function ChannelsPage() {
   const tree = useQuery(getChannelTreeOptions());
   const sync = useMutation({
     ...syncKookStructureMutation(),
-    onSuccess: (r) => toast.success(`已同步 ${r.guilds} 个服务器、${r.categories} 个分组、${r.channels} 个文字频道`),
+    onSuccess: (r) =>
+      toast.success(
+        `已同步 ${r.guilds} 个服务器、${r.categories} 个分组、${r.channels} 个文字频道` +
+          (r.forums ? `、${r.forums} 个帖子频道` : ""),
+      ),
   });
   const upsertGuild = useMutation(upsertGuildMutation());
   const removeGuild = useMutation({ ...deleteGuildMutation(), onSuccess: () => toast.success("已删除服务器配置") });
   const upsertChannel = useMutation(upsertChannelMutation());
   const removeChannel = useMutation({ ...deleteChannelMutation(), onSuccess: () => toast.success("已删除频道配置") });
   const backfill = useMutation({ ...backfillChannelMutation(), onSuccess: () => toast.success("已请求回填历史消息") });
+  const syncForum = useMutation({
+    ...syncForumChannelThreadsMutation(),
+    onSuccess: (r) => toast.success(`已同步 ${r.synced} 条帖子索引`),
+  });
 
   const [selected, setSelected] = useState<SelectedScope | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -110,6 +120,7 @@ export function ChannelsPage() {
         topic: ch.topic,
         position: ch.position,
         is_category: ch.is_category,
+        channel_type: ch.channel_type,
         enabled,
       },
     });
@@ -265,8 +276,16 @@ export function ChannelsPage() {
                                       })
                                     }
                                     onStateChange={(en) => saveChannel(ch, en)}
-                                    onBackfill={() => backfill.mutate({ path: { channel_id: ch.channel_id } })}
-                                    backfilling={backfill.isPending && backfill.variables?.path.channel_id === ch.channel_id}
+                                    onBackfill={() =>
+                                      ch.channel_type === 4
+                                        ? syncForum.mutate({ path: { channel_id: ch.channel_id } })
+                                        : backfill.mutate({ path: { channel_id: ch.channel_id } })
+                                    }
+                                    backfilling={
+                                      ch.channel_type === 4
+                                        ? syncForum.isPending && syncForum.variables?.path.channel_id === ch.channel_id
+                                        : backfill.isPending && backfill.variables?.path.channel_id === ch.channel_id
+                                    }
                                     onDelete={() => removeChannel.mutate({ path: { channel_id: ch.channel_id } })}
                                   />
                                 ))}
@@ -279,7 +298,7 @@ export function ChannelsPage() {
                       {ungrouped.length > 0 && (
                         <div className="rounded-lg border">
                           <div className="border-b bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                            未分组文字频道
+                            未分组频道
                           </div>
                           <div className="divide-y">
                             {ungrouped.map((ch) => (
@@ -293,12 +312,20 @@ export function ChannelsPage() {
                                     scope: "channel",
                                     id: ch.channel_id,
                                     guildId: guild.guild_id,
-                                    label: `频道 #${ch.name || ch.channel_id}`,
+                                    label: `${ch.channel_type === 4 ? "帖子频道" : "频道"} #${ch.name || ch.channel_id}`,
                                   })
                                 }
                                 onStateChange={(en) => saveChannel(ch, en)}
-                                onBackfill={() => backfill.mutate({ path: { channel_id: ch.channel_id } })}
-                                backfilling={backfill.isPending && backfill.variables?.path.channel_id === ch.channel_id}
+                                onBackfill={() =>
+                                  ch.channel_type === 4
+                                    ? syncForum.mutate({ path: { channel_id: ch.channel_id } })
+                                    : backfill.mutate({ path: { channel_id: ch.channel_id } })
+                                }
+                                backfilling={
+                                  ch.channel_type === 4
+                                    ? syncForum.isPending && syncForum.variables?.path.channel_id === ch.channel_id
+                                    : backfill.isPending && backfill.variables?.path.channel_id === ch.channel_id
+                                }
                                 onDelete={() => removeChannel.mutate({ path: { channel_id: ch.channel_id } })}
                               />
                             ))}
@@ -349,6 +376,7 @@ function ChannelRow({
 }) {
   const overrides = Object.keys(ch.settings ?? {});
   const modeValue = ch.enabled === null ? "inherit" : ch.enabled ? "on" : "off";
+  const isForum = ch.channel_type === 4;
 
   return (
     <div
@@ -358,13 +386,22 @@ function ChannelRow({
         !ch.effective_enabled && "opacity-70",
       )}
     >
-      <HashIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      {isForum ? (
+        <MessagesSquareIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      ) : (
+        <HashIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-medium">{ch.name || ch.channel_id}</span>
           <span className="font-mono text-xs text-muted-foreground">{ch.channel_id}</span>
+          {isForum && (
+            <Badge variant="secondary" className="text-[11px] font-normal">
+              帖子频道
+            </Badge>
+          )}
           <Badge variant={ch.effective_enabled ? "default" : "outline"} className="text-[11px] font-normal">
-            {ch.effective_enabled ? "生效中" : "已停用"}
+            {ch.effective_enabled ? (isForum ? "可读" : "生效中") : "已停用"}
           </Badge>
           {overrides.length > 0 && (
             <Badge variant="secondary" className="text-[11px] font-normal">
@@ -373,7 +410,10 @@ function ChannelRow({
           )}
         </div>
         {ch.backfilled_at && (
-          <div className="text-xs text-muted-foreground">上次回填：{fmtTime(ch.backfilled_at)}</div>
+          <div className="text-xs text-muted-foreground">
+            {isForum ? "上次同步帖子：" : "上次回填："}
+            {fmtTime(ch.backfilled_at)}
+          </div>
         )}
       </div>
 
@@ -401,8 +441,9 @@ function ChannelRow({
           <SlidersHorizontalIcon data-icon="inline-start" /> 覆盖
         </Button>
         <PendingButton size="xs" variant="outline" pending={backfilling} onClick={onBackfill}>
-          {!backfilling && <DownloadIcon data-icon="inline-start" />}
-          回填
+          {!backfilling &&
+            (isForum ? <RefreshCwIcon data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />)}
+          {isForum ? "同步帖子" : "回填"}
         </PendingButton>
         <ConfirmButton
           size="xs"

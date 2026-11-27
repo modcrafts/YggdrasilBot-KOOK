@@ -1627,6 +1627,116 @@
         }
       }
     },
+    "/channels/{channel_id}/threads": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List Forum Channel Threads",
+        "description": "Return cached threads of a KOOK forum channel (``channel_type = 4``).",
+        "operationId": "list_forum_channel_threads",
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ForumThreadOut"
+                  },
+                  "title": "Response List Forum Channel Threads"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/channels/{channel_id}/sync-threads": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Sync Forum Channel Threads",
+        "description": "Pull latest threads of a KOOK forum channel into the ``kook_threads`` cache table.",
+        "operationId": "sync_forum_channel_threads",
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForumSyncOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/triggers/meta": {
       "get": {
         "tags": [
@@ -5148,6 +5258,18 @@
             "title": "Is Category",
             "default": false
           },
+          "channel_type": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Type",
+            "description": "频道类型：0 分组 / 1 文字频道 / 4 帖子频道（省略时保持原值）"
+          },
           "enabled": {
             "anyOf": [
               {
@@ -5216,6 +5338,11 @@
           "is_category": {
             "type": "boolean",
             "title": "Is Category"
+          },
+          "channel_type": {
+            "type": "integer",
+            "title": "Channel Type",
+            "default": 1
           },
           "enabled": {
             "anyOf": [
@@ -6043,6 +6170,120 @@
           "locked"
         ],
         "title": "FactOut"
+      },
+      "ForumSyncOut": {
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "title": "Channel Id"
+          },
+          "synced": {
+            "type": "integer",
+            "title": "Synced"
+          }
+        },
+        "type": "object",
+        "required": [
+          "channel_id",
+          "synced"
+        ],
+        "title": "ForumSyncOut"
+      },
+      "ForumThreadOut": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "channel_id": {
+            "type": "string",
+            "title": "Channel Id"
+          },
+          "guild_id": {
+            "type": "string",
+            "title": "Guild Id"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "category_name": {
+            "type": "string",
+            "title": "Category Name"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author_id": {
+            "type": "string",
+            "title": "Author Id"
+          },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
+          "preview_text": {
+            "type": "string",
+            "title": "Preview Text"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "post_count": {
+            "type": "integer",
+            "title": "Post Count"
+          },
+          "collect_num": {
+            "type": "integer",
+            "title": "Collect Num"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "latest_active_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Latest Active Time"
+          },
+          "synced_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Synced At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "channel_id",
+          "guild_id",
+          "category_id",
+          "category_name",
+          "title",
+          "author_id",
+          "author_name",
+          "preview_text",
+          "tags",
+          "post_count",
+          "collect_num",
+          "created_at",
+          "latest_active_time",
+          "synced_at"
+        ],
+        "title": "ForumThreadOut"
       },
       "GlossaryIn": {
         "properties": {
@@ -9737,6 +9978,11 @@
           "channels": {
             "type": "integer",
             "title": "Channels"
+          },
+          "forums": {
+            "type": "integer",
+            "title": "Forums",
+            "default": 0
           }
         },
         "type": "object",

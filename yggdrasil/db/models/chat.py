@@ -142,3 +142,33 @@ class StickerDrop(Base):
     model: Mapped[str] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(default=0)
     cost: Mapped[float | None]
+
+
+class KookThread(Base):
+    """Cached index of threads inside KOOK forum/thread channels (``channel_type = 4``)."""
+
+    __tablename__ = "kook_threads"
+    __table_args__ = (
+        Index("ix_kook_threads_channel_active", "channel_id", text("latest_active_time DESC")),
+        Index("ix_kook_threads_guild_active", "guild_id", text("latest_active_time DESC")),
+    )
+
+    thread_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    channel_id: Mapped[str] = mapped_column(Text)
+    guild_id: Mapped[str] = mapped_column(Text)
+    category_id: Mapped[str | None] = mapped_column(Text)
+    category_name: Mapped[str] = mapped_column(Text, default="", server_default="")
+    post_id: Mapped[str] = mapped_column(Text, default="", server_default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    author_id: Mapped[str] = mapped_column(Text, default="")
+    author_name: Mapped[str] = mapped_column(Text, default="")
+    preview_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    content_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    medias: Mapped[list[Any]] = mapped_column(default=list)
+    post_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    collect_num: Mapped[int] = mapped_column(default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    latest_active_time: Mapped[datetime] = mapped_column(server_default=func.now())
+    content_deleted: Mapped[bool] = mapped_column(default=False, server_default="false")
+    synced_at: Mapped[datetime] = mapped_column(server_default=func.now())

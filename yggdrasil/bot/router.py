@@ -20,7 +20,7 @@ from yggdrasil.core.metrics import TRIGGERS_MATCHED
 from yggdrasil.ingest.writer import WRITER, IncomingMessage
 from yggdrasil.kook.client import Kook, LiveKook
 from yggdrasil.kook.model import Incoming, KookError
-from yggdrasil.kook.parser import parse_incoming, parse_observed, parse_recalled
+from yggdrasil.kook.parser import parse_incoming, parse_observed, parse_recalled, parse_updated_message
 from yggdrasil.pipeline import ratelimit, recalls
 from yggdrasil.runtime import Snapshot, snapshot
 from yggdrasil.triggers.bots import check_bot_trigger, is_bot_sender, is_ignored_user, note_human_message
@@ -71,6 +71,12 @@ async def handle_event(kook: LiveKook, raw: dict[str, Any]) -> None:
     bot_state.heartbeat(kook.self_id)
     if (recalled := parse_recalled(raw)) is not None:
         _recall(*recalled)
+        return
+    if (edited := parse_updated_message(raw)) is not None:
+        ch_id, msg_id, content, _updated_at = edited
+        if snapshot().channel_enabled(ch_id):
+            gid = snapshot().guild_of(ch_id) or ""
+            _spawn(WRITER.update_message_content(ch_id, msg_id, content, guild_id=gid))
         return
     if (observed := parse_observed(raw)) is not None:
         from yggdrasil import events
@@ -409,7 +415,7 @@ async def _catch_up(kook: LiveKook, connected_at: datetime) -> None:
         LOGGER.exception("auto-syncing KOOK channels on connect failed")
     snap = snapshot()
     for cid, ch in snap.channels.items():
-        if not ch.is_category and snap.channel_enabled(cid):
+        if not ch.is_category and not ch.is_forum and snap.channel_enabled(cid):
             request_backfill(cid, before=connected_at)
 
 

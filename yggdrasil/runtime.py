@@ -79,6 +79,11 @@ class ChannelInfo:
     name: str
     enabled: bool | None  # None = inherit from parent category (default False if uncategorized)
     settings_doc: dict[str, Any]
+    channel_type: int = 1  # 0=category, 1=text, 4=thread/forum
+
+    @property
+    def is_forum(self) -> bool:
+        return not self.is_category and self.channel_type == 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,11 +185,25 @@ class Snapshot:
                 return cat.enabled
         return False
 
-    def guild_channels(self, guild_id: str, *, enabled_only: bool = True) -> list[ChannelInfo]:
+    def guild_channels(
+        self, guild_id: str, *, enabled_only: bool = True, include_forums: bool = False
+    ) -> list[ChannelInfo]:
         out = [
             c
             for c in self.channels.values()
-            if not c.is_category and c.guild_id == guild_id and (not enabled_only or self.channel_enabled(c.channel_id))
+            if not c.is_category
+            and (include_forums or not c.is_forum)
+            and c.guild_id == guild_id
+            and (not enabled_only or self.channel_enabled(c.channel_id))
+        ]
+        out.sort(key=lambda c: (c.position, c.channel_id))
+        return out
+
+    def guild_forum_channels(self, guild_id: str, *, enabled_only: bool = True) -> list[ChannelInfo]:
+        out = [
+            c
+            for c in self.channels.values()
+            if c.is_forum and c.guild_id == guild_id and (not enabled_only or self.channel_enabled(c.channel_id))
         ]
         out.sort(key=lambda c: (c.position, c.channel_id))
         return out
@@ -292,6 +311,7 @@ async def load() -> Snapshot:
                 c.name,
                 c.enabled,
                 dict(c.settings),
+                c.channel_type,
             )
             for c in (await session.scalars(select(Channel))).all()
         }

@@ -5,7 +5,18 @@ import re
 from typing import Any
 
 from yggdrasil.kook import segments as seg
-from yggdrasil.kook.model import Incoming, Message, Observed, Role, Sender
+from yggdrasil.kook.model import (
+    ForumPost,
+    ForumThread,
+    Incoming,
+    Message,
+    Observed,
+    Role,
+    Sender,
+    ThreadCategory,
+    ThreadMedia,
+    ThreadTag,
+)
 from yggdrasil.kook.segments import Segment
 
 # KOOK message types (https://developer.kookapp.cn/doc/event/message)
@@ -60,14 +71,26 @@ def _quote_msg_id(quote: dict[str, Any]) -> str:
 # Admin permission bit in KOOK guild role bitmask (bit 0 = Administrator).
 _PERM_ADMIN = 1 << 0
 
-# System event types worth recording in bot_events.
+# System event types worth recording in bot_events (including undocumented batch channel, role, and emoji events).
 _OBSERVED_EVENTS = frozenset(
     {
         "joined_guild",
         "exited_guild",
+        "updated_guild_member",
         "added_channel",
         "updated_channel",
+        "updated_server_type",
+        "sort_channel",
         "deleted_channel",
+        "batch_added_channel",
+        "batch_updated_channel",
+        "batch_deleted_channel",
+        "added_role",
+        "updated_role",
+        "deleted_role",
+        "added_emoji",
+        "updated_emoji",
+        "deleted_emoji",
         "self_joined_guild",
         "self_exited_guild",
         "updated_guild",
@@ -96,7 +119,7 @@ def _sender_role(
     admin_role_ids: set[int] | None = None,
 ) -> Role:
     uid = str(author.get("id") or "")
-    if owner_id and uid == owner_id:
+    if author.get("is_master") or (owner_id and uid == owner_id):
         return "owner"
     roles = author.get("roles") or []
     if admin_role_ids and any(int(r) in admin_role_ids for r in roles if str(r).isdigit()):
@@ -130,6 +153,8 @@ def parse_sender(
     username = str(author.get("username") or "")
     nickname = str(author.get("nickname") or "")
     name = (nickname or username).strip()
+    tag_info = author.get("tag_info")
+    tag_text = str(tag_info.get("text") or "") if isinstance(tag_info, dict) else ""
     return Sender(
         user_id=uid,
         name=name,
@@ -138,6 +163,10 @@ def parse_sender(
         role_ids=_parse_role_ids(author),
         is_bot=bool(author.get("bot")),
         avatar=str(author.get("avatar") or ""),
+        identify_num=str(author.get("identify_num") or ""),
+        online=bool(author.get("online")),
+        tag_text=tag_text,
+        is_sys=bool(author.get("is_sys")),
     )
 
 
@@ -427,6 +456,10 @@ def parse_rest_message(
         channel_names=channel_names,
         quote_id=quote_id,
     )
+    updated_raw = raw.get("updated_at")
+    updated_at = _timestamp_s(updated_raw) if updated_raw else None
+    embeds = [e for e in (raw.get("embeds") or []) if isinstance(e, dict)]
+    reactions = [r for r in (raw.get("reactions") or []) if isinstance(r, dict)]
     return Message(
         message_id=msg_id,
         channel_id=channel_id,
@@ -434,6 +467,9 @@ def parse_rest_message(
         sender=sender,
         time=_timestamp_s(raw.get("create_at")),
         segments=segs,
+        updated_at=updated_at or None,
+        embeds=embeds,
+        reactions=reactions,
     )
 
 
@@ -454,6 +490,25 @@ def parse_recalled(event: dict[str, Any]) -> tuple[str, str] | None:
     return channel_id, msg_id
 
 
+def parse_updated_message(event: dict[str, Any]) -> tuple[str, str, str, int] | None:
+    """Return ``(channel_id, msg_id, content, updated_at_s)`` for a channel ``updated_message`` event, else None."""
+    if int(event.get("type") or 0) != MSG_SYSTEM:
+        return None
+    extra = event.get("extra") or {}
+    if not isinstance(extra, dict) or extra.get("type") != "updated_message":
+        return None
+    body = extra.get("body") or {}
+    if not isinstance(body, dict):
+        return None
+    channel_id = str(body.get("channel_id") or "")
+    msg_id = str(body.get("msg_id") or "")
+    if not channel_id or not msg_id:
+        return None
+    content = str(body.get("content") or "")
+    updated_at = _timestamp_s(body.get("updated_at") or event.get("msg_timestamp"))
+    return channel_id, msg_id, content, updated_at
+
+
 def parse_observed(event: dict[str, Any]) -> Observed | None:
     """Return an ``Observed`` record for non-message KOOK system events worth tracking, else None."""
     if int(event.get("type") or 0) != MSG_SYSTEM:
@@ -465,18 +520,151 @@ def parse_observed(event: dict[str, Any]) -> Observed | None:
     if etype not in _OBSERVED_EVENTS:
         return None
     raw_body = extra.get("body")
-    body: dict[str, Any] = raw_body if isinstance(raw_body, dict) else {}
-    guild_id = str(body.get("guild_id") or event.get("target_id") or "") or None
-    channel_id = str(body.get("channel_id") or (body.get("id") if "channel" in etype else "") or "") or None
-    user_id = str(body.get("user_id") or "") or None
-    operator_id = str(body.get("operator_id") or "") or None
+    if isinstance(raw_body, list):
+        items = [x for x in raw_body if isinstance(x, dict)]
+        body: dict[str, Any] = {"items": items}
+        first_gid = next((str(x.get("guild_id") or "") for x in items if x.get("guild_id")), "")
+        guild_id = str(event.get("target_id") or first_gid or "") or None
+        channel_id = None
+        user_id = None
+        operator_id = None
+    else:
+        body = dict(raw_body) if isinstance(raw_body, dict) else {}
+        guild_id = str(body.get("guild_id") or event.get("target_id") or "") or None
+        channel_id = (
+            str(
+                body.get("channel_id")
+                or (body.get("id") if "channel" in etype and not etype.startswith("batch_") else "")
+                or ""
+            )
+            or None
+        )
+        user_id = str(body.get("user_id") or "") or None
+        operator_id = str(body.get("operator_id") or "") or None
     return Observed(
         kind=f"kook.{etype}",
         guild_id=guild_id,
         channel_id=channel_id,
         user_id=user_id,
         operator_id=operator_id,
-        data=dict(body),
+        data=body,
+    )
+
+
+# --- forum / thread parsing -------------------------------------------------------------------------------------
+
+
+def parse_thread_category(raw: dict[str, Any] | None) -> ThreadCategory | None:
+    if not isinstance(raw, dict):
+        return None
+    cid = str(raw.get("id") or "").strip()
+    if not cid:
+        return None
+    return ThreadCategory(
+        id=cid,
+        name=str(raw.get("name") or ""),
+        allow=int(raw.get("allow") or 0),
+        deny=int(raw.get("deny") or 0),
+    )
+
+
+def _extract_thread_content(raw_content: str | None, *, fallback: str = "") -> tuple[str, tuple[Segment, ...]]:
+    """Decode KOOK thread/post CardMessage JSON into readable plain text and media segments."""
+    if not raw_content:
+        return fallback.strip(), ()
+    modules, plain, atts = _extract_card(raw_content)
+    segs: list[Segment] = []
+    if modules:
+        segs.append(seg.card(modules, plain))
+        segs.extend(atts)
+        return plain or fallback.strip(), tuple(segs)
+    text = raw_content.strip()
+    if text:
+        segs.append(seg.text(text))
+    return text or fallback.strip(), tuple(segs)
+
+
+def parse_forum_thread(
+    raw: dict[str, Any],
+    *,
+    channel_id: str,
+    guild_id: str = "",
+    owner_id: str | None = None,
+    admin_role_ids: set[int] | None = None,
+) -> ForumThread:
+    """Parse a thread object from ``/thread/list`` or ``/thread/view``."""
+    raw_content = raw.get("content")
+    content_str = str(raw_content) if raw_content is not None else None
+    preview = str(raw.get("preview_content") or "")
+    content_text, content_segments = _extract_thread_content(content_str, fallback=preview)
+    tags = tuple(
+        ThreadTag(id=int(t.get("id") or 0), name=str(t.get("name") or ""), icon=str(t.get("icon") or ""))
+        for t in (raw.get("tags") or [])
+        if isinstance(t, dict)
+    )
+    medias = tuple(
+        ThreadMedia(
+            type=int(m.get("type") or 0),
+            src=str(m.get("src") or ""),
+            title=str(m.get("title") or ""),
+            cover=str(m.get("cover") or ""),
+        )
+        for m in (raw.get("medias") or [])
+        if isinstance(m, dict) and m.get("src")
+    )
+    return ForumThread(
+        thread_id=str(raw.get("id") or ""),
+        channel_id=str(raw.get("channel_id") or channel_id),
+        guild_id=str(raw.get("guild_id") or guild_id),
+        post_id=str(raw.get("post_id") or ""),
+        title=str(raw.get("title") or ""),
+        cover=str(raw.get("cover") or ""),
+        status=int(raw.get("status") or 0),
+        preview_content=preview,
+        content=content_str,
+        content_text=content_text,
+        content_segments=content_segments,
+        author=parse_sender(raw.get("user"), owner_id=owner_id, admin_role_ids=admin_role_ids),
+        category=parse_thread_category(raw.get("category")),
+        tags=tags,
+        medias=medias,
+        create_time=_timestamp_s(raw.get("create_time")),
+        latest_active_time=_timestamp_s(raw.get("latest_active_time") or raw.get("create_time")),
+        post_count=int(raw.get("post_count") or 0),
+        collect_num=int(raw.get("collect_num") or 0),
+        is_updated=bool(raw.get("is_updated")),
+        content_deleted=bool(raw.get("content_deleted")),
+    )
+
+
+def parse_forum_post(
+    raw: dict[str, Any],
+    *,
+    thread_id: str = "",
+    owner_id: str | None = None,
+    admin_role_ids: set[int] | None = None,
+) -> ForumPost:
+    """Parse a comment or nested floor reply from ``/thread/post``."""
+    tid = str(raw.get("thread_id") or thread_id)
+    content = str(raw.get("content") or "")
+    content_text, content_segments = _extract_thread_content(content)
+    nested = tuple(
+        parse_forum_post(r, thread_id=tid, owner_id=owner_id, admin_role_ids=admin_role_ids)
+        for r in (raw.get("replies") or [])
+        if isinstance(r, dict)
+    )
+    return ForumPost(
+        post_id=str(raw.get("id") or ""),
+        thread_id=tid,
+        author=parse_sender(raw.get("user"), owner_id=owner_id, admin_role_ids=admin_role_ids),
+        content=content,
+        content_text=content_text,
+        content_segments=content_segments,
+        reply_id=str(raw.get("reply_id") or ""),
+        belong_to_post_id=str(raw.get("belong_to_post_id") or ""),
+        create_time=_timestamp_s(raw.get("create_time")),
+        is_updated=bool(raw.get("is_updated")),
+        replies=nested,
     )
 
 

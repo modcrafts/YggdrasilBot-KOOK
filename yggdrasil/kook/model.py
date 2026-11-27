@@ -7,6 +7,12 @@ from yggdrasil.kook.segments import Segment
 
 Role = Literal["owner", "admin", "member"]
 
+# KOOK channel types (from KOOK REST/Gateway protocol).
+CHANNEL_CATEGORY = 0
+CHANNEL_TEXT = 1
+CHANNEL_VOICE = 2
+CHANNEL_THREAD = 4
+
 
 @dataclass(frozen=True, slots=True)
 class Sender:
@@ -17,6 +23,10 @@ class Sender:
     role_ids: tuple[int, ...] = ()  # KOOK guild role IDs from extra.author.roles
     is_bot: bool = False
     avatar: str = ""
+    identify_num: str = ""
+    online: bool = False
+    tag_text: str = ""
+    is_sys: bool = False
 
 
 @dataclass(slots=True)
@@ -29,6 +39,9 @@ class Message:
     sender: Sender
     time: int  # unix seconds
     segments: list[Segment]
+    updated_at: int | None = None  # unix seconds if edited
+    embeds: list[dict[str, Any]] = field(default_factory=list)
+    reactions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -66,6 +79,12 @@ class Guild:
     topic: str = ""
     icon: str = ""
     owner_id: str = ""
+    default_channel_id: str = ""
+    welcome_channel_id: str = ""
+    region: str = ""
+    enable_open: bool = False
+    open_id: str = ""
+    notify_type: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,10 +93,20 @@ class Channel:
     guild_id: str
     name: str
     topic: str = ""
-    type: int = 1  # 1=text, 2=voice, 0=category
+    type: int = CHANNEL_TEXT  # 0=category, 1=text, 2=voice, 4=thread/forum
     is_category: bool = False
     parent_id: str | None = None
     level: int = 0  # KOOK position/sort order
+    creator_id: str = ""
+    slow_mode: int = 0
+    slow_mode_reply: int = 0
+    default_layout: int = 0
+    sort_order: int = 0
+    permission_sync: bool | None = None
+
+    @property
+    def is_thread(self) -> bool:
+        return not self.is_category and self.type == CHANNEL_THREAD
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +114,11 @@ class GuildRole:
     role_id: int
     name: str
     permissions: int = 0
+    color: int = 0
+    position: int = 0
+    hoist: bool = False
+    mentionable: bool = False
+    op_permissions: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,10 +134,89 @@ class Member:
     avatar: str = ""
     joined_at: int | None = None  # epoch seconds
     active_time: int | None = None  # epoch seconds
+    identify_num: str = ""
+    online: bool = False
+    os: str = ""
+    status: int = 0
+    is_vip: bool = False
+    vip_avatar: str = ""
+    is_sys: bool = False
+    is_master: bool = False
+    banner: str = ""
+    tag_text: str = ""
+    wealth_level: int = 0
+    mobile_verified: bool | None = None
 
     @property
     def display_name(self) -> str:
         return self.nickname or self.username
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadCategory:
+    id: str
+    name: str
+    allow: int = 0
+    deny: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadTag:
+    id: int
+    name: str
+    icon: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadMedia:
+    type: int  # 1=image, 2=video, 3=audio, etc.
+    src: str
+    title: str = ""
+    cover: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ForumThread:
+    """A KOOK forum thread (inside a ``type=4`` thread channel)."""
+
+    thread_id: str
+    channel_id: str
+    guild_id: str
+    title: str
+    author: Sender
+    post_id: str = ""
+    cover: str = ""
+    status: int = 0
+    preview_content: str = ""
+    content: str | None = None  # raw CardMessage JSON; None when fetched via /thread/list
+    content_text: str = ""  # extracted readable text from CardMessage content (or preview)
+    content_segments: tuple[Segment, ...] = ()
+    category: ThreadCategory | None = None
+    tags: tuple[ThreadTag, ...] = ()
+    medias: tuple[ThreadMedia, ...] = ()
+    create_time: int = 0  # unix seconds
+    latest_active_time: int = 0  # unix seconds
+    post_count: int = 0
+    collect_num: int = 0
+    is_updated: bool = False
+    content_deleted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ForumPost:
+    """A top-level comment or nested floor reply inside a KOOK forum thread."""
+
+    post_id: str
+    thread_id: str
+    author: Sender
+    content: str = ""  # raw CardMessage JSON
+    content_text: str = ""
+    content_segments: tuple[Segment, ...] = ()
+    reply_id: str = ""
+    belong_to_post_id: str = ""
+    create_time: int = 0  # unix seconds
+    is_updated: bool = False
+    replies: tuple["ForumPost", ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

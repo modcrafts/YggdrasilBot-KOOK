@@ -423,6 +423,7 @@ async def set_channel(
                 "topic": ch.topic,
                 "position": ch.position,
                 "is_category": ch.is_category,
+                "channel_type": ch.channel_type,
                 "enabled": ch.enabled,
             }
             if ch
@@ -438,6 +439,7 @@ async def set_channel(
         topic=(prev or {}).get("topic", ""),
         position=(prev or {}).get("position", 0),
         is_category=bool((prev or {}).get("is_category", False)),
+        channel_type=(prev or {}).get("channel_type"),
         enabled=next_enabled,
         settings=None,
     )

@@ -88,9 +88,21 @@ async def test_added_and_updated_channel_events_upsert_and_reload(monkeypatch: p
         "position": 5,
         "is_category": False,
         "parent_id": CAT_ON,
+        "channel_type": 1,
     }
     assert len(reloads) == 1
     assert published == ["channel ch-new kook.added_channel"]
+
+    # Forum channels (type=4) are also synced with channel_type=4
+    forum = Observed(
+        kind="kook.added_channel",
+        guild_id=GUILD_ON,
+        channel_id="ch-forum",
+        data={"id": "ch-forum", "guild_id": GUILD_ON, "name": "攻略帖", "parent_id": CAT_ON, "type": 4, "level": 6},
+    )
+    await events._apply_policy(kook, 2, forum)  # pyright: ignore[reportPrivateUsage]
+    assert len(upserts) == 2
+    assert upserts[1]["channel_type"] == 4
 
     # Voice channels (type=2) are ignored
     voice = Observed(
@@ -99,8 +111,78 @@ async def test_added_and_updated_channel_events_upsert_and_reload(monkeypatch: p
         channel_id="ch-voice",
         data={"id": "ch-voice", "guild_id": GUILD_ON, "name": "语音", "parent_id": CAT_ON, "type": 2},
     )
-    await events._apply_policy(kook, 2, voice)  # pyright: ignore[reportPrivateUsage]
-    assert len(upserts) == 1
+    await events._apply_policy(kook, 3, voice)  # pyright: ignore[reportPrivateUsage]
+    assert len(upserts) == 2
+
+
+async def test_batch_channel_events_and_role_emoji_cache_invalidation(monkeypatch: pytest.MonkeyPatch) -> None:
+    upserts: list[dict[str, Any]] = []
+    deleted: list[str] = []
+    reloads: list[str] = []
+    published: list[str] = []
+
+    async def fake_upsert(channel_id: str, **kw: Any) -> bool:
+        upserts.append({"channel_id": channel_id, **kw})
+        return True
+
+    async def fake_delete(channel_id: str) -> bool:
+        deleted.append(channel_id)
+        return True
+
+    async def fake_load() -> Snapshot:
+        reloads.append("load")
+        return Snapshot()
+
+    async def fake_publish(reason: str) -> None:
+        published.append(reason)
+
+    monkeypatch.setattr(events, "upsert_channel_record", fake_upsert)
+    monkeypatch.setattr(events, "delete_channel_record", fake_delete)
+    monkeypatch.setattr(events, "load", fake_load)
+    monkeypatch.setattr(events, "publish_change", fake_publish)
+
+    kook = FakeKook(bot_id=BOT)
+    # Batch added: text + forum + voice (voice skipped)
+    await events._apply_policy(  # pyright: ignore[reportPrivateUsage]
+        kook,
+        10,
+        Observed(
+            kind="kook.batch_added_channel",
+            guild_id=GUILD_ON,
+            data={
+                "items": [
+                    {"id": "c-a", "guild_id": GUILD_ON, "name": "文字A", "parent_id": CAT_ON, "type": 1},
+                    {"id": "c-f", "guild_id": GUILD_ON, "name": "帖子F", "parent_id": CAT_ON, "type": 4},
+                    {"id": "c-v", "guild_id": GUILD_ON, "name": "语音V", "parent_id": CAT_ON, "type": 2},
+                ]
+            },
+        ),
+    )
+    assert [(u["channel_id"], u["channel_type"]) for u in upserts] == [("c-a", 1), ("c-f", 4)]
+    assert len(reloads) == 1
+
+    # Batch deleted removes matching known channels in one reload
+    await events._apply_policy(  # pyright: ignore[reportPrivateUsage]
+        kook,
+        11,
+        Observed(
+            kind="kook.batch_deleted_channel",
+            guild_id=GUILD_ON,
+            data={"items": [{"id": CH_ON}, {"id": "missing"}]},
+        ),
+    )
+    assert deleted == [CH_ON]
+    assert len(reloads) == 2
+
+    # Role & emoji change events immediately invalidate LiveKook caches
+    await events._apply_policy(  # pyright: ignore[reportPrivateUsage]
+        kook, 12, Observed(kind="kook.updated_role", guild_id=GUILD_ON, data={"role_id": 1})
+    )
+    await events._apply_policy(  # pyright: ignore[reportPrivateUsage]
+        kook, 13, Observed(kind="kook.added_emoji", guild_id=GUILD_ON, data={"id": "e-1"})
+    )
+    assert kook.invalidated_meta == [GUILD_ON]
+    assert kook.invalidated_emojis == [GUILD_ON]
 
 
 async def test_dispatch_auto_discovers_unseen_channel_in_enabled_guild(

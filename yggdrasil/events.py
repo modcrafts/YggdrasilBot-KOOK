@@ -10,10 +10,11 @@ from yggdrasil.core.metrics import BOT_EVENTS
 from yggdrasil.db.models import BotEvent, Channel, Guild
 from yggdrasil.db.session import get_session
 from yggdrasil.kook.client import Kook
-from yggdrasil.kook.model import KookError, Observed
+from yggdrasil.kook.model import CHANNEL_CATEGORY, CHANNEL_TEXT, CHANNEL_THREAD, KookError, Observed
 from yggdrasil.runtime import Snapshot, load, publish_change, snapshot
 
 AUTO = "auto"
+_SUPPORTED_CHANNEL_TYPES = frozenset({CHANNEL_TEXT, CHANNEL_THREAD})
 
 
 class EventError(Exception):
@@ -27,6 +28,10 @@ def _normalize_parent(parent_id: Any, *, is_category: bool) -> str | None:
     return None if (not raw or raw == "0") else raw
 
 
+def _is_supported_channel(is_category: bool, channel_type: int) -> bool:
+    return is_category or channel_type in _SUPPORTED_CHANNEL_TYPES
+
+
 async def upsert_channel_record(
     channel_id: str,
     *,
@@ -36,15 +41,17 @@ async def upsert_channel_record(
     position: int = 0,
     is_category: bool = False,
     parent_id: str | None = None,
+    channel_type: int = CHANNEL_TEXT,
 ) -> bool:
-    """Insert or update a KOOK channel/category in DB for an already-registered guild.
+    """Insert or update a KOOK channel/category/forum in DB for an already-registered guild.
 
-    New grouped text channels default to ``enabled=None`` (inherit their parent category's switch),
-    matching manual KOOK sync semantics; new categories and ungrouped text channels default to
+    New grouped text/forum channels default to ``enabled=None`` (inherit their parent category's switch),
+    matching manual KOOK sync semantics; new categories and ungrouped channels default to
     ``enabled=False``. Existing rows preserve their ``enabled`` and ``settings`` overrides.
     Returns True if a DB write occurred.
     """
     parent = _normalize_parent(parent_id, is_category=is_category)
+    ctype = CHANNEL_CATEGORY if is_category else channel_type
     async with get_session() as s:
         if await s.get(Guild, guild_id) is None:
             return False
@@ -59,6 +66,7 @@ async def upsert_channel_record(
                     topic=topic,
                     position=position,
                     is_category=is_category,
+                    channel_type=ctype,
                     enabled=False if (is_category or parent is None) else None,
                     settings={},
                 )
@@ -71,6 +79,7 @@ async def upsert_channel_record(
             and row.topic == topic
             and row.position == position
             and row.is_category == is_category
+            and row.channel_type == ctype
         ):
             return False
         row.guild_id = guild_id
@@ -79,6 +88,7 @@ async def upsert_channel_record(
         row.topic = topic
         row.position = position
         row.is_category = is_category
+        row.channel_type = ctype
         return True
 
 
@@ -107,13 +117,38 @@ async def _ensure_parent_category(kook: Kook, guild_id: str, parent_id: str | No
         position=cat.level,
         is_category=True,
         parent_id=None,
+        channel_type=CHANNEL_CATEGORY,
     )
+
+
+async def _upsert_from_event_body(kook: Kook, body: dict[str, Any], *, fallback_guild_id: str = "") -> bool:
+    cid = str(body.get("id") or body.get("channel_id") or "").strip()
+    gid = str(body.get("guild_id") or fallback_guild_id or "").strip()
+    if not cid or not gid:
+        return False
+    is_category = bool(body.get("is_category")) or int(body.get("type") or 0) == CHANNEL_CATEGORY
+    ch_type = int(body.get("type") or (CHANNEL_CATEGORY if is_category else CHANNEL_TEXT))
+    if not _is_supported_channel(is_category, ch_type):
+        return False
+    parent_id = _normalize_parent(body.get("parent_id"), is_category=is_category)
+    changed_parent = await _ensure_parent_category(kook, gid, parent_id)
+    changed = await upsert_channel_record(
+        cid,
+        guild_id=gid,
+        name=str(body.get("name") or ""),
+        topic=str(body.get("topic") or ""),
+        position=int(body.get("level") or 0),
+        is_category=is_category,
+        parent_id=parent_id,
+        channel_type=CHANNEL_CATEGORY if is_category else ch_type,
+    )
+    return changed or changed_parent
 
 
 async def sync_channel(kook: Kook, channel_id: str, *, guild_id: str | None = None) -> Snapshot:
     """Fetch one unknown KOOK channel via REST, persist it, and reload the runtime snapshot."""
     ch = await kook.channel(channel_id)
-    if not ch.is_category and ch.type != 1:
+    if not _is_supported_channel(ch.is_category, ch.type):
         return snapshot()
     gid = ch.guild_id or guild_id or ""
     if not gid:
@@ -128,13 +163,15 @@ async def sync_channel(kook: Kook, channel_id: str, *, guild_id: str | None = No
         position=ch.level,
         is_category=ch.is_category,
         parent_id=parent_id,
+        channel_type=CHANNEL_CATEGORY if ch.is_category else ch.type,
     )
     if changed or changed_parent:
         snap = await load()
         LOGGER.info(
-            "auto-synced KOOK channel #{} ({}) in guild {} (parent={}, enabled={})",
+            "auto-synced KOOK channel #{} ({}) type={} in guild {} (parent={}, enabled={})",
             ch.name or ch.channel_id,
             ch.channel_id,
+            ch.type,
             gid,
             parent_id,
             snap.channel_enabled(ch.channel_id),
@@ -144,14 +181,14 @@ async def sync_channel(kook: Kook, channel_id: str, *, guild_id: str | None = No
     return snapshot()
 
 
-async def sync_registered_guilds(kook: Kook) -> int:
-    """Refresh categories & text channels for all guilds already in DB (e.g. after bot reconnect)."""
+async def sync_registered_guilds(kook: Kook, *, guild_ids: list[str] | None = None) -> int:
+    """Refresh categories, text channels, and forum channels for guilds already in DB."""
     snap = snapshot()
-    guild_ids = list(snap.guilds)
-    if not guild_ids:
+    targets = [gid for gid in (guild_ids or list(snap.guilds)) if gid in snap.guilds]
+    if not targets:
         return 0
     touched = 0
-    for gid in guild_ids:
+    for gid in targets:
         try:
             chs = await kook.channels(gid)
         except KookError as e:
@@ -165,10 +202,11 @@ async def sync_registered_guilds(kook: Kook) -> int:
             }
             live_ids: set[str] = set()
             for ch in chs:
-                if not ch.is_category and ch.type != 1:
+                if not _is_supported_channel(ch.is_category, ch.type):
                     continue
                 live_ids.add(ch.channel_id)
                 parent_id = _normalize_parent(ch.parent_id, is_category=ch.is_category)
+                ctype = CHANNEL_CATEGORY if ch.is_category else ch.type
                 crow = existing.get(ch.channel_id)
                 if crow is None:
                     s.add(
@@ -180,6 +218,7 @@ async def sync_registered_guilds(kook: Kook) -> int:
                             topic=ch.topic,
                             position=ch.level,
                             is_category=ch.is_category,
+                            channel_type=ctype,
                             enabled=False if (ch.is_category or parent_id is None) else None,
                             settings={},
                         )
@@ -191,12 +230,14 @@ async def sync_registered_guilds(kook: Kook) -> int:
                     or crow.topic != ch.topic
                     or crow.position != ch.level
                     or crow.is_category != ch.is_category
+                    or crow.channel_type != ctype
                 ):
                     crow.parent_id = parent_id
                     crow.name = ch.name
                     crow.topic = ch.topic
                     crow.position = ch.level
                     crow.is_category = ch.is_category
+                    crow.channel_type = ctype
                     touched += 1
             for cid, crow in existing.items():
                 if cid not in live_ids:
@@ -205,12 +246,12 @@ async def sync_registered_guilds(kook: Kook) -> int:
     if touched:
         await load()
         await publish_change(f"guilds auto-synced ({touched} channels)")
-        LOGGER.info("auto-synced {} channel changes across {} guilds", touched, len(guild_ids))
+        LOGGER.info("auto-synced {} channel changes across {} guilds", touched, len(targets))
     return touched
 
 
 def kept(o: Observed, self_id: str) -> bool:
-    """Keep bot/guild lifecycle events always; member events only for known guilds."""
+    """Keep bot/guild/channel/role/emoji lifecycle events always; member events only for known guilds."""
     if o.kind in (
         "kook.self_joined_guild",
         "kook.self_exited_guild",
@@ -219,6 +260,17 @@ def kept(o: Observed, self_id: str) -> bool:
         "kook.deleted_channel",
         "kook.added_channel",
         "kook.updated_channel",
+        "kook.updated_server_type",
+        "kook.sort_channel",
+        "kook.batch_added_channel",
+        "kook.batch_updated_channel",
+        "kook.batch_deleted_channel",
+        "kook.added_role",
+        "kook.updated_role",
+        "kook.deleted_role",
+        "kook.added_emoji",
+        "kook.updated_emoji",
+        "kook.deleted_emoji",
     ):
         return True
     if o.user_id == self_id:
@@ -256,26 +308,55 @@ async def _apply_policy(kook: Kook, event_id: int, o: Observed) -> None:
 
     snap = snapshot()
     cfg = snap.settings().events
-    if o.kind in ("kook.added_channel", "kook.updated_channel") and o.channel_id and o.guild_id:
-        body = o.data
-        is_category = bool(body.get("is_category")) or int(body.get("type") or 0) == 0
-        ch_type = int(body.get("type") or (0 if is_category else 1))
-        if not is_category and ch_type != 1:
-            return
-        parent_id = _normalize_parent(body.get("parent_id"), is_category=is_category)
-        changed_parent = await _ensure_parent_category(kook, o.guild_id, parent_id)
-        changed = await upsert_channel_record(
-            o.channel_id,
-            guild_id=o.guild_id,
-            name=str(body.get("name") or ""),
-            topic=str(body.get("topic") or ""),
-            position=int(body.get("level") or 0),
-            is_category=is_category,
-            parent_id=parent_id,
-        )
-        if changed or changed_parent:
+    if (
+        o.kind in ("kook.added_channel", "kook.updated_channel", "kook.updated_server_type")
+        and o.channel_id
+        and o.guild_id
+    ):
+        body = {**o.data, "id": o.data.get("id") or o.channel_id, "guild_id": o.data.get("guild_id") or o.guild_id}
+        if await _upsert_from_event_body(kook, body, fallback_guild_id=o.guild_id):
             await load()
             await publish_change(f"channel {o.channel_id} {o.kind}")
+    elif o.kind == "kook.batch_added_channel":
+        items = [x for x in (o.data.get("items") or []) if isinstance(x, dict)]
+        changed_any = False
+        for item in items:
+            if await _upsert_from_event_body(kook, item, fallback_guild_id=o.guild_id or ""):
+                changed_any = True
+        if changed_any:
+            await load()
+            await publish_change(f"channels batch added ({len(items)})")
+    elif o.kind == "kook.batch_updated_channel":
+        candidates: list[dict[str, Any]] = []
+        if isinstance(o.data.get("added_channel"), dict):
+            candidates.append(o.data["added_channel"])
+        for item in o.data.get("updated_channel") or []:
+            if isinstance(item, dict):
+                candidates.append(item)
+        changed_any = False
+        for item in candidates:
+            if await _upsert_from_event_body(kook, item, fallback_guild_id=o.guild_id or ""):
+                changed_any = True
+        if changed_any:
+            await load()
+            await publish_change(f"channels batch updated ({len(candidates)})")
+    elif o.kind == "kook.batch_deleted_channel":
+        if cfg.disable_channel_when_deleted:
+            items = [x for x in (o.data.get("items") or []) if isinstance(x, dict)]
+            deleted_any = False
+            for item in items:
+                cid = str(item.get("id") or item.get("channel_id") or "").strip()
+                if cid and cid in snap.channels and await delete_channel_record(cid):
+                    deleted_any = True
+            if deleted_any:
+                await load()
+                await publish_change(f"channels batch deleted ({len(items)})")
+    elif o.kind == "kook.sort_channel" and o.guild_id and o.guild_id in snap.guilds:
+        await sync_registered_guilds(kook, guild_ids=[o.guild_id])
+    elif o.kind in ("kook.added_role", "kook.updated_role", "kook.deleted_role") and o.guild_id:
+        kook.invalidate_guild_meta(o.guild_id)
+    elif o.kind in ("kook.added_emoji", "kook.updated_emoji", "kook.deleted_emoji") and o.guild_id:
+        kook.invalidate_guild_emojis(o.guild_id)
     elif o.kind == "kook.updated_guild" and o.guild_id and o.guild_id in snap.guilds:
         name = str(o.data.get("name") or "").strip()
         icon = str(o.data.get("icon") or "").strip()

@@ -60,6 +60,7 @@ def memory_channels(snap: Snapshot) -> list[str]:
         c.channel_id
         for c in snap.channels.values()
         if not c.is_category
+        and not c.is_forum
         and snap.channel_enabled(c.channel_id)
         and snap.settings(channel_id=c.channel_id, guild_id=c.guild_id).memory.enabled
     )
