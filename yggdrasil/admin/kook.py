@@ -226,10 +226,12 @@ async def sync_kook_structure(actor: Actor) -> SyncOut:
                 row.name = g.name
                 row.icon = g.icon
             await c.session.flush()
+            live_ids: set[str] = set()
             for ch in guild_channels.get(g.guild_id, []):
                 # Keep categories (is_category=True / type=0) and text channels (type=1).
                 if not ch.is_category and ch.type != 1:
                     continue
+                live_ids.add(ch.channel_id)
                 if ch.is_category:
                     n_cats += 1
                 else:
@@ -258,5 +260,8 @@ async def sync_kook_structure(actor: Actor) -> SyncOut:
                     crow.topic = ch.topic
                     crow.position = ch.level
                     crow.is_category = ch.is_category
+            for cid, crow in existing_channels.items():
+                if crow.guild_id == g.guild_id and cid not in live_ids:
+                    await c.session.delete(crow)
         c.detail = {"guilds": n_guilds, "categories": n_cats, "channels": n_chs}
     return SyncOut(guilds=n_guilds, categories=n_cats, channels=n_chs)

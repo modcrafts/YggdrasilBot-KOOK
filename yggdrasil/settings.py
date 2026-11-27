@@ -457,7 +457,9 @@ class PrivacySettings(BaseModel):
 class EventSettings(BaseModel):
     """Guild/channel system event policy (global document)."""
 
-    disable_channel_when_deleted: bool = Field(default=True, description="KOOK 频道被删除时自动停用")
+    disable_channel_when_deleted: bool = Field(
+        default=True, description="KOOK 频道被删除时自动删除该频道配置（不删历史消息与记忆）"
+    )
     disable_guild_when_exited: bool = Field(default=True, description="bot 退出或被移出服务器时自动停用其下频道")
     notify_guild_changes: bool = Field(default=True, description="bot 加入/退出服务器或被移出时私聊通知超级管理员")
     retention_days: int = Field(default=90, ge=7, description="事件记录保留天数")

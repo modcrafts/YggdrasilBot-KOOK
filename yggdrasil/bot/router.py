@@ -7,6 +7,7 @@ Every KOOK Gateway event passes through :func:`handle_event`:
 """
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,12 +19,45 @@ from yggdrasil.core.log import LOGGER
 from yggdrasil.core.metrics import TRIGGERS_MATCHED
 from yggdrasil.ingest.writer import WRITER, IncomingMessage
 from yggdrasil.kook.client import Kook, LiveKook
-from yggdrasil.kook.model import Incoming
+from yggdrasil.kook.model import Incoming, KookError
 from yggdrasil.kook.parser import parse_incoming, parse_observed, parse_recalled
 from yggdrasil.pipeline import ratelimit, recalls
-from yggdrasil.runtime import snapshot
+from yggdrasil.runtime import Snapshot, snapshot
 from yggdrasil.triggers.bots import check_bot_trigger, is_bot_sender, is_ignored_user, note_human_message
 from yggdrasil.triggers.index import MatchInput, Resolved, current
+
+_DISCOVER_COOLDOWN_S = 60.0
+_discover_tried: dict[str, float] = {}
+_discover_inflight: dict[str, asyncio.Task[Snapshot]] = {}
+
+
+async def _discover_channel(kook: Kook, channel_id: str, guild_id: str) -> Snapshot:
+    """Lazily sync an unseen channel in a known enabled guild (coalescing concurrent messages)."""
+    snap = snapshot()
+    if channel_id in snap.channels:
+        return snap
+    if time.monotonic() - _discover_tried.get(channel_id, -1e9) < _DISCOVER_COOLDOWN_S:
+        return snap
+    task = _discover_inflight.get(channel_id)
+    if task is None:
+        from yggdrasil import events
+
+        async def _run() -> Snapshot:
+            try:
+                return await events.sync_channel(kook, channel_id, guild_id=guild_id)
+            except KookError as e:
+                LOGGER.warning("auto-discovering KOOK channel {} failed: {}", channel_id, e)
+                return snapshot()
+            except Exception:
+                LOGGER.exception("auto-discovering KOOK channel {} failed", channel_id)
+                return snapshot()
+            finally:
+                _discover_tried[channel_id] = time.monotonic()
+                _discover_inflight.pop(channel_id, None)
+
+        task = asyncio.create_task(_run(), name=f"discover-channel-{channel_id}")
+        _discover_inflight[channel_id] = task
+    return await task
 
 
 def _mentions_me(incoming: Incoming) -> bool:
@@ -75,6 +109,8 @@ async def dispatch(kook: Kook, incoming: Incoming) -> None:
         return
 
     if channel_id is not None:
+        if channel_id not in snap.channels and guild_id and (g := snap.guilds.get(guild_id)) is not None and g.enabled:
+            snap = await _discover_channel(kook, channel_id, guild_id)
         if not snap.channel_enabled(channel_id):
             return
         if guild_id:
@@ -359,12 +395,18 @@ async def on_connected(kook: LiveKook) -> None:
     bot_state.mark_connected(kook.self_id)
     ident = await bot_state.identity(kook)
     LOGGER.info("KOOK bot connected: {} ({})", ident.nickname, ident.self_id)
-    _spawn(_catch_up(datetime.now(UTC)))
+    _spawn(_catch_up(kook, datetime.now(UTC)))
 
 
-async def _catch_up(connected_at: datetime) -> None:
-    """Backfill messages missed while no pod held the KOOK gateway connection."""
+async def _catch_up(kook: LiveKook, connected_at: datetime) -> None:
+    """Sync new/updated channels and backfill messages missed while no pod held the KOOK gateway connection."""
     await asyncio.sleep(10)
+    try:
+        from yggdrasil import events
+
+        await events.sync_registered_guilds(kook)
+    except Exception:
+        LOGGER.exception("auto-syncing KOOK channels on connect failed")
     snap = snapshot()
     for cid, ch in snap.channels.items():
         if not ch.is_category and snap.channel_enabled(cid):
