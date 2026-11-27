@@ -310,6 +310,20 @@ def choose_format(
     return "kmarkdown"
 
 
+_KMD_LINK_LABEL_ESCAPE_RE = re.compile(r"([\\\[\]()*~`])")
+
+
+def _escape_kmd_link_label(text: str) -> str:
+    """Escape KMarkdown metacharacters inside ``[label](url)`` so link text is never broken or truncated."""
+    single_line = " ".join(text.split())
+    return _KMD_LINK_LABEL_ESCAPE_RE.sub(r"\\\1", single_line)
+
+
+def _escape_kmd_link_url(url: str) -> str:
+    """Escape parentheses/whitespace inside ``[label](url)`` targets."""
+    return url.strip().replace("(", "%28").replace(")", "%29").replace(" ", "%20")
+
+
 def _sources_kmarkdown(
     reply: BotReply,
     *,
@@ -319,7 +333,7 @@ def _sources_kmarkdown(
 ) -> str:
     lines = ["**参考来源**"]
     for s in reply.sources[:10]:
-        label = s.label.strip().replace("[", "(").replace("]", ")")
+        raw_label = s.label.strip()
         url = (s.url or "").strip()
         if url and (m := _SOURCE_MSG_ANCHOR_RE.match(url)):
             url = (message_anchor_map or {}).get(int(m.group(1)), "")
@@ -330,20 +344,12 @@ def _sources_kmarkdown(
                 url = kook_anchor_url(gid, cid, tid, pid)
             else:
                 url = ""
-        if url and url.startswith(_KOOK_ANCHOR_PREFIX):
-            # Keep KOOK anchor URLs bare so KOOK natively renders them instead of Markdown link text.
-            rendered_label = to_kmarkdown(
-                label,
-                channel_map=channel_map,
-                message_anchor_map=message_anchor_map,
-                thread_channel_map=thread_channel_map,
-            )
-            lines.append(f"- {rendered_label} {url}" if rendered_label else f"- {url}")
-        elif url:
-            lines.append(f"- [{label}]({url})")
+        if url:
+            safe_label = _escape_kmd_link_label(raw_label) or url
+            lines.append(f"- [{safe_label}]({_escape_kmd_link_url(url)})")
         else:
             rendered_label = to_kmarkdown(
-                label,
+                raw_label,
                 channel_map=channel_map,
                 message_anchor_map=message_anchor_map,
                 thread_channel_map=thread_channel_map,

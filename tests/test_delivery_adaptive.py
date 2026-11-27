@@ -209,8 +209,9 @@ def test_message_and_thread_anchors_expand_to_bare_kook_anchor_urls():
             )
         ],
         sources=[
-            SourceRef(label="#题外故事 讨论", url="#msg:42"),
-            SourceRef(label="#题外故事 帖子回复", url="#thread:153610525312287232/153674495008179200"),
+            SourceRef(label="#题外故事 · NCG爆笑手术Top榜（仍在更新中）", url="#msg:42"),
+            SourceRef(label="[置顶] *重要* (测试) `tag`", url="#thread:153610525312287232/153674495008179200"),
+            SourceRef(label="#题外故事 讨论记录"),
         ],
     )
     assert extract_message_anchor_ids(reply) == {42}
@@ -228,7 +229,10 @@ def test_message_and_thread_anchors_expand_to_bare_kook_anchor_urls():
     # Bare anchor tags expand to bare KOOK anchor URLs (native KOOK chip); explicit [label](#msg:42) keeps label
     assert f"原消息在 {msg_url} ，也可以看 {msg_url} 或 [原话]({msg_url})。" in kmd
     assert f"帖子见 {thread_url} ，具体回复在 {post_url}。" in kmd
-    assert f"- (chn)3148909618967474(chn) 讨论 {msg_url}" in kmd
-    assert f"- (chn)3148909618967474(chn) 帖子回复 {post_url}" in kmd
+    # Sources with URL wrap the whole escaped label inside [label](url) without nesting (chn)
+    assert f"- [#题外故事 · NCG爆笑手术Top榜（仍在更新中）]({msg_url})" in kmd
+    assert rf"- [\[置顶\] \*重要\* \(测试\) \`tag\`]({post_url})" in kmd
+    # Sources without URL still convert #频道名 -> (chn)
+    assert "- (chn)3148909618967474(chn) 讨论记录" in kmd
     # Code fence stays untouched
     assert "```text\n#msg:42 #thread:153610525312287232\n```" in kmd
