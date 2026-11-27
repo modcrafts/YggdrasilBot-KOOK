@@ -11,7 +11,32 @@ from dataclasses import dataclass, field
 from typing import Any
 
 URL_RE = re.compile(r"https?://[^\s\u3000，。！？、）」』\])>\"']+(?<![.,;:!?])")
+_SELF_LINK_RE = re.compile(r"\[(https?://[^\s\]]+)\]\(\1\)")
+_KOOK_ANCHOR_RE = re.compile(
+    r"^https?://(?:www\.)?kookapp\.cn/(?:direct/anchor|app/channels)"
+    r"/([^/?#]+)/([^/?#]+)/([^/?#]+)(?:/([^/?#]+))?/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
 _MEDIA_LABELS = {"audio": "语音", "video": "视频"}
+
+
+def _collapse_self_links(text: str) -> str:
+    """Collapse KOOK KMarkdown ``[URL](URL)`` duplicates to save tokens (URLs are still extracted into handles)."""
+    if "](" not in text:
+        return text
+
+    def _sub(m: re.Match[str]) -> str:
+        url = m.group(1)
+        if am := _KOOK_ANCHOR_RE.match(url):
+            target_id, post_id = am.group(3), am.group(4)
+            if post_id:
+                return "[KOOK帖子回复链接]"
+            if target_id.isdigit():
+                return "[KOOK帖子链接]"
+            return "[KOOK消息链接]"
+        return url
+
+    return _SELF_LINK_RE.sub(_sub, text)
 
 
 @dataclass(slots=True)
@@ -44,12 +69,12 @@ def normalize(segments: list[dict[str, Any]], mention: Callable[[str], str] | No
         data = seg.get("data") or {}
         match kind:
             case "text":
-                text = str(data.get("text", ""))
+                text = _collapse_self_links(str(data.get("text", "")))
                 if after_at and text[:1].isspace():
                     text = text[1:]
                 parts.append(text)
             case "kmarkdown":
-                parts.append(str(data.get("content", "")))
+                parts.append(_collapse_self_links(str(data.get("content", ""))))
             case "mention":
                 uid = str(data.get("user_id") or "").strip()
                 if uid:

@@ -10,6 +10,7 @@ from pydantic_ai.usage import RunUsage
 from tests.support.kook import FakeKook, make_sender
 from yggdrasil.agent.deps import Deps, Handles
 from yggdrasil.agent.skills import kook as kook_skill
+from yggdrasil.agent.tools import web as web_tools
 from yggdrasil.forum import accessible_forum_channels
 from yggdrasil.kook import segments as seg
 from yggdrasil.kook.model import ForumPost, ForumThread, Guild, ThreadCategory, ThreadMedia, ThreadTag
@@ -162,3 +163,17 @@ async def test_list_and_read_forum_thread_tools(
     assert "找不到可读取的帖子频道" in denied
     assert cached_batches == [["th-101"], ["th-101"], ["th-101"]]
     assert ctx.deps.forum_thread_channels == {"th-101": CH_FORUM_PUB}
+
+    # 5. read_url handles both 3-segment forum thread anchor and 4-segment forum reply anchor links
+    monkeypatch.setattr("yggdrasil.forum.cache_threads", fake_cache)
+    thread_link = f"https://www.kookapp.cn/direct/anchor/{GUILD}/{CH_FORUM_PUB}/th-101"
+    reply_link = f"https://www.kookapp.cn/direct/anchor/{GUILD}/{CH_FORUM_PUB}/th-101/p-202"
+    res_thread = await web_tools.read_url(ctx, thread_link)
+    assert isinstance(res_thread, str)
+    assert "新人部署指南" in res_thread
+    assert "第一步安装 Docker" in res_thread
+    res_reply = await web_tools.read_url(ctx, reply_link)
+    assert isinstance(res_reply, str)
+    assert "链接定位到的目标回复（post_id=p-202）" in res_reply
+    assert "有问题随时反馈" in res_reply
+    assert "非常清楚，已成功跑起来！" in res_reply

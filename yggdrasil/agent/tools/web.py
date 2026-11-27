@@ -9,22 +9,148 @@ from yggdrasil.agent.deps import Deps
 from yggdrasil.agent.tools.base import chat_tool, people_for, resolve_ref
 from yggdrasil.config import APP_CONFIG
 from yggdrasil.ingest.normalize import normalize
-from yggdrasil.kook.model import KookError
-from yggdrasil.kook.parser import parse_kook_message_link
+from yggdrasil.kook.model import ForumPost, KookError
+from yggdrasil.kook.parser import parse_kook_anchor_link
 from yggdrasil.tools.errors import ToolError
 from yggdrasil.transcript.schema import Hit, HitsDisplay, PageDisplay
 
 
-async def _read_kook_link(ctx: RunContext[Deps], url: str, guild_id: str, channel_id: str, kook_msg_id: str) -> str:
-    """Resolve a KOOK message link (respecting guild & cross-channel privacy rules)."""
+def _find_post_in_tree(posts: list[ForumPost], target_post_id: str) -> tuple[ForumPost | None, ForumPost | None]:
+    """Find ``target_post_id`` among top-level posts or nested replies; returns ``(parent_post, matched_post)``."""
+    for p in posts:
+        if p.post_id == target_post_id:
+            return None, p
+        for sub in p.replies:
+            if sub.post_id == target_post_id:
+                return p, sub
+    return None, None
+
+
+async def _read_kook_forum_link(
+    ctx: RunContext[Deps], url: str, guild_id: str, channel_id: str, thread_id: str, post_id: str | None
+) -> str:
+    """Resolve a KOOK forum thread or reply anchor link (respecting forum privacy rules)."""
+    from yggdrasil.forum import accessible_forum_channels, cache_threads
+    from yggdrasil.people import clean_name
+    from yggdrasil.runtime import snapshot
+
+    forums = {
+        c.channel_id: c for c in accessible_forum_channels(guild_id, ctx.deps.channel_id, role_ids=ctx.deps.role_ids)
+    }
+    if channel_id not in forums:
+        raise ToolError("该 KOOK 帖子链接所属频道未启用或无权访问")
+
+    try:
+        thread = await ctx.deps.kook.forum_thread(channel_id, thread_id, guild_id=guild_id)
+    except KookError as e:
+        raise ToolError(f"无法读取该 KOOK 帖子（可能已删除或无权限）：{e}") from e
+    ctx.deps.forum_thread_channels[thread.thread_id] = channel_id
+    try:
+        await cache_threads([thread])
+    except Exception:
+        pass
+
+    ch_name = snapshot().channel_name(channel_id) or channel_id
+    who = clean_name(thread.author.name) or thread.author.user_id or "未知作者"
+    created = (
+        datetime.fromtimestamp(thread.create_time).astimezone().strftime("%Y-%m-%d %H:%M") if thread.create_time else ""
+    )
+    body = (
+        "（主楼内容已被删除）"
+        if thread.content_deleted
+        else (thread.content_text or thread.preview_content or "（无正文）")
+    )
+    if len(body) > 4000:
+        body = body[:4000] + "\n…（正文过长已截断）"
+
+    media_keys: list[str] = []
+    if thread.content_segments:
+        reg = ctx.deps.handles.register(list(thread.content_segments), urls=True)
+        if reg:
+            media_keys.append(reg.strip())
+    for m in thread.medias:
+        if m.src and m.type == 1:
+            if key := ctx.deps.handles.add("image", {"url": m.src, "name": m.title, "source": "kook_thread"}):
+                media_keys.append(key)
+
+    lines = [
+        f"来源帖子频道：#{ch_name}（channel_id={channel_id}）",
+        f"帖子：{thread.title}（thread_id={thread.thread_id}）",
+        f"作者：{who}({thread.author.user_id})"
+        + (f" | 发帖：{created}" if created else "")
+        + f" | 回复：{thread.post_count}",
+        "",
+        "### 主楼正文",
+        body,
+    ]
+    if media_keys:
+        lines.append("附带媒体：" + " ".join(media_keys))
+
+    try:
+        posts = await ctx.deps.kook.forum_posts(channel_id, thread_id, order="asc", page=1, limit=50)
+    except KookError as e:
+        lines.append(f"\n### 评论\n拉取评论失败：{e}")
+    else:
+        if post_id:
+            parent, target = _find_post_in_tree(posts, post_id)
+            if target is not None:
+                pwho = clean_name(target.author.name) or target.author.user_id or "未知用户"
+                pwhen = (
+                    datetime.fromtimestamp(target.create_time).astimezone().strftime("%Y-%m-%d %H:%M")
+                    if target.create_time
+                    else ""
+                )
+                phandles = (
+                    ctx.deps.handles.register(list(target.content_segments), urls=True)
+                    if target.content_segments
+                    else ""
+                )
+                lines.append(f"\n### 链接定位到的目标回复（post_id={post_id}）")
+                if parent is not None:
+                    par_who = clean_name(parent.author.name) or parent.author.user_id or "未知用户"
+                    lines.append(f"所在楼层 [post_id={parent.post_id}] {par_who}：{(parent.content_text or '')[:300]}")
+                lines.append(
+                    f"[{pwhen}] {pwho}({target.author.user_id})：{target.content_text or '（无文字）'}{phandles}"
+                )
+            else:
+                lines.append(
+                    f"\n### 链接定位到的目标回复（post_id={post_id}）\n"
+                    "未在前 50 条一级回复中定位到该楼层，可用 read_forum_thread 进一步翻看。"
+                )
+        elif posts:
+            lines.append(f"\n### 前 {min(len(posts), 10)} 条评论")
+            for p in posts[:10]:
+                pwho = clean_name(p.author.name) or p.author.user_id or "未知用户"
+                lines.append(f"- [post_id={p.post_id}] {pwho}：{(p.content_text or '（无文字）')[:300]}")
+
+    ctx.deps.notes.show(
+        ctx.tool_call_id,
+        PageDisplay(
+            url=url, final_url=url, title=f"KOOK 帖子 #{ch_name} · {thread.title}", via="kook", page=1, pages=1
+        ),
+    )
+    return "\n".join(lines)
+
+
+async def _read_kook_link(
+    ctx: RunContext[Deps], url: str, guild_id: str, channel_id: str, target_id: str, post_id: str | None = None
+) -> str:
+    """Resolve a KOOK message, forum thread, or forum reply anchor link."""
     from yggdrasil.memory.search import accessible_channels, find_by_msg_id
     from yggdrasil.runtime import snapshot
 
     if not ctx.deps.guild_id or ctx.deps.guild_id != guild_id:
-        raise ToolError("无法读取其他服务器的 KOOK 消息链接")
+        raise ToolError("无法读取其他服务器的 KOOK 链接")
+
+    ch_info = snapshot().channels.get(channel_id)
+    if (ch_info is not None and ch_info.is_forum) or post_id is not None or target_id.isdigit():
+        return await _read_kook_forum_link(ctx, url, guild_id, channel_id, target_id, post_id)
+
     allowed = set(accessible_channels(ctx.deps.guild_id, ctx.deps.channel_id, role_ids=ctx.deps.role_ids))
     if channel_id not in allowed:
         raise ToolError("该 KOOK 消息链接所属频道无权访问")
+
+    kook_msg_id = target_id
 
     row = await find_by_msg_id(channel_id, kook_msg_id)
     if row is not None:
@@ -60,7 +186,7 @@ async def _read_kook_link(ctx: RunContext[Deps], url: str, guild_id: str, channe
 
 @chat_tool("read_url")
 async def read_url(ctx: RunContext[Deps], url_or_handle: str, page: int = 1, browser: bool = False) -> str:
-    """读取网页正文（支持分页）或本服务器可见的 KOOK 消息链接（kookapp.cn/direct/anchor/...）。
+    """读取网页正文（支持分页）或本服务器可见的 KOOK 消息/帖子/帖子回复锚点链接（kookapp.cn/direct/anchor/...）。
     参数可以是 URL、url#N / card#N 句柄，或聊天记录里的消息编号 #N（那条消息里的链接）。
     普通读取遇到验证页会自动换浏览器；读到的仍是验证页、空壳或缺了要靠 JavaScript 加载的内容时，用 browser=true
     直接让真浏览器打开（会跑 JavaScript，慢几秒）。网页里的图片注册成 img#N（附说明），可用 view_image 看，
@@ -76,7 +202,7 @@ async def read_url(ctx: RunContext[Deps], url_or_handle: str, page: int = 1, bro
         url = h.data.get("url") or ""
         if not url:
             raise ToolError("这个卡片没有链接")
-    if parsed := parse_kook_message_link(url):
+    if parsed := parse_kook_anchor_link(url):
         return await _read_kook_link(ctx, url, *parsed)
     cfg = ctx.deps.settings.tools
     try:

@@ -42,14 +42,31 @@ _KOOK_MSG_LINK_RE = re.compile(
     r"^https?://(?:www\.)?kookapp\.cn/(?:direct/anchor|app/channels)/([^/?#]+)/([^/?#]+)/([^/?#]+)/?(?:[?#].*)?$",
     re.IGNORECASE,
 )
+_KOOK_ANCHOR_LINK_RE = re.compile(
+    r"^https?://(?:www\.)?kookapp\.cn/(?:direct/anchor|app/channels)"
+    r"/([^/?#]+)/([^/?#]+)/([^/?#]+)(?:/([^/?#]+))?/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
 
 
 def parse_kook_message_link(url: str) -> tuple[str, str, str] | None:
-    """Parse a KOOK message anchor URL into ``(guild_id, channel_id, kook_msg_id)``."""
+    """Parse a 3-segment KOOK message anchor URL into ``(guild_id, channel_id, kook_msg_id)``."""
     m = _KOOK_MSG_LINK_RE.match(url.strip())
     if m is None:
         return None
     return m.group(1), m.group(2), m.group(3)
+
+
+def parse_kook_anchor_link(url: str) -> tuple[str, str, str, str | None] | None:
+    """Parse a KOOK message, forum thread, or forum post reply anchor URL.
+
+    Returns ``(guild_id, channel_id, target_id, post_id)``, where ``post_id`` is non-None for 4-segment
+    forum reply links (``.../guild/channel/thread_id/post_id``).
+    """
+    m = _KOOK_ANCHOR_LINK_RE.match(url.strip())
+    if m is None:
+        return None
+    return m.group(1), m.group(2), m.group(3), m.group(4)
 
 
 def _quote_msg_id(quote: dict[str, Any]) -> str:

@@ -55,3 +55,24 @@ def test_a_link_stops_before_the_sentence_punctuation_after_it():
     text = "看 https://example.com/new-spline/; 还有 https://example.com/a;b=1?q=2. 和 https://example.com/x!"
     norm = normalize([seg.text(text)])
     assert norm.urls == ["https://example.com/new-spline/", "https://example.com/a;b=1?q=2", "https://example.com/x"]
+
+
+def test_self_repeated_kook_anchor_links_collapse_without_losing_url_handle():
+    msg_url = (
+        "https://www.kookapp.cn/direct/anchor/2827730975763212/1701540030305840/3f381b6c-34e2-4113-b852-aedb88a08864"
+    )
+    thread_url = "https://www.kookapp.cn/direct/anchor/2827730975763212/3148909618967474/153610525312287232"
+    post_url = (
+        "https://www.kookapp.cn/direct/anchor/2827730975763212/3148909618967474/153610525312287232/153674495008179200"
+    )
+    web_url = "https://example.com/doc"
+    norm = normalize(
+        [
+            seg.text(
+                f"看 [{msg_url}]({msg_url}) 和 [{thread_url}]({thread_url}) "
+                f"还有 [{post_url}]({post_url}) 以及 [{web_url}]({web_url})"
+            )
+        ]
+    )
+    assert norm.text == f"看 [KOOK消息链接] 和 [KOOK帖子链接] 还有 [KOOK帖子回复链接] 以及 {web_url}"
+    assert norm.urls == [msg_url, thread_url, post_url, web_url]
