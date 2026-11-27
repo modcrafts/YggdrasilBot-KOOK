@@ -137,8 +137,7 @@ async def channel_info(ctx: RunContext[Deps]) -> str:
     forums = accessible_forum_channels(guild_id, channel_id, role_ids=ctx.deps.role_ids)
     if forums:
         out.append(
-            "\n本服务器可读取的帖子频道："
-            + "、".join(f"#{c.name or c.channel_id}({c.channel_id})" for c in forums)
+            "\n本服务器可读取的帖子频道：" + "、".join(f"#{c.name or c.channel_id}({c.channel_id})" for c in forums)
         )
 
     try:
@@ -335,8 +334,7 @@ async def list_forum_threads(
                 preview = _clip(t.preview_content or t.content_text, _THREAD_PREVIEW_CHARS)
                 lines.append(
                     f"- [thread_id={t.thread_id}] {cat}**{t.title}**"
-                    f" — {who} · {t.post_count} 回复 · 活跃 {when}"
-                    + (f"\n  摘要：{preview}" if preview else "")
+                    f" — {who} · {t.post_count} 回复 · 活跃 {when}" + (f"\n  摘要：{preview}" if preview else "")
                 )
             sections.append("\n".join(lines))
         return "\n\n".join(sections)

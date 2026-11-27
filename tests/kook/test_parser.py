@@ -296,8 +296,7 @@ def test_parse_forum_thread_and_nested_posts():
     )
     assert "完整正文" in detail.content_text
     assert any(
-        s["type"] == "image" and s["data"]["url"] == "https://img.kookapp.cn/p1.png"
-        for s in detail.content_segments
+        s["type"] == "image" and s["data"]["url"] == "https://img.kookapp.cn/p1.png" for s in detail.content_segments
     )
     assert detail.medias[0].src == "https://img.kookapp.cn/m1.png"
 

@@ -209,9 +209,7 @@ class FakeKook(Kook):
             rows = [t for t in rows if t.category is not None and t.category.id == category_id]
         return rows[:limit]
 
-    async def forum_thread(
-        self, channel_id: str, thread_id: str, *, guild_id: str | None = None
-    ) -> ForumThread:
+    async def forum_thread(self, channel_id: str, thread_id: str, *, guild_id: str | None = None) -> ForumThread:
         for t in self.forum_thread_map.get(channel_id, ()):
             if t.thread_id == thread_id:
                 return t

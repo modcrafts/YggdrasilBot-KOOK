@@ -108,9 +108,7 @@ class Kook(ABC):
         """List threads in a forum channel (summaries; call :meth:`forum_thread` for full content)."""
         return []
 
-    async def forum_thread(
-        self, channel_id: str, thread_id: str, *, guild_id: str | None = None
-    ) -> ForumThread:
+    async def forum_thread(self, channel_id: str, thread_id: str, *, guild_id: str | None = None) -> ForumThread:
         """Fetch full thread details (including main post content)."""
         raise KookError(f"forum thread not found: {thread_id}")
 
@@ -445,9 +443,7 @@ class LiveKook(Kook):
             if r.get("id")
         ]
 
-    async def forum_thread(
-        self, channel_id: str, thread_id: str, *, guild_id: str | None = None
-    ) -> ForumThread:
+    async def forum_thread(self, channel_id: str, thread_id: str, *, guild_id: str | None = None) -> ForumThread:
         raw = await self.rest.thread_view(channel_id, thread_id)
         owner_id, admin_ids = await self.guild_role_info(guild_id) if guild_id else (None, None)
         return parse_forum_thread(
