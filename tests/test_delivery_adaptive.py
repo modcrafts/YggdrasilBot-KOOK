@@ -33,7 +33,7 @@ def test_to_kmarkdown_converts_channel_tags_in_chinese_prose_and_preserves_code_
     assert "去 (chn)1002(chn) 看看" in out
     assert "看(chn)1003(chn)频道" in out
     assert "还有 (chn)1004(chn)。" in out
-    assert "https://example.com/#闲聊" in out
+    assert "[https://example.com/#闲聊](https://example.com/#闲聊)" in out
     assert "`print('#闲聊')`" in out
     assert "x = '#闲聊'" in out
 
@@ -226,9 +226,9 @@ def test_message_and_thread_anchors_expand_to_bare_kook_anchor_urls():
         thread_channel_map={"153610525312287232": ("2827730975763212", "3148909618967474")},
     )
     kmd = plan.kmarkdown
-    # Bare anchor tags expand to bare KOOK anchor URLs (native KOOK chip); explicit [label](#msg:42) keeps label
-    assert f"原消息在 {msg_url} ，也可以看 {msg_url} 或 [原话]({msg_url})。" in kmd
-    assert f"帖子见 {thread_url} ，具体回复在 {post_url}。" in kmd
+    # All links in KOOK KMarkdown are wrapped in [label](url) so KOOK always parses them as clickable
+    assert f"原消息在 [原消息]({msg_url}) ，也可以看 [原消息]({msg_url}) 或 [原话]({msg_url})。" in kmd
+    assert f"帖子见 [原帖]({thread_url}) ，具体回复在 [原回复]({post_url})。" in kmd
     # Sources with URL wrap the whole escaped label inside [label](url) without nesting (chn)
     assert f"- [#题外故事 · NCG爆笑手术Top榜（仍在更新中）]({msg_url})" in kmd
     assert rf"- [\[置顶\] \*重要\* \(测试\) \`tag\`]({post_url})" in kmd

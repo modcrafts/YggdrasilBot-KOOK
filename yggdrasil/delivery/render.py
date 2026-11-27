@@ -99,6 +99,21 @@ class RenderedPlan:
     plain_text: str = ""
 
 
+_MD_LINK_OR_BARE_URL_RE = re.compile(r"\[[^\]]+\]\([^)]+\)|https?://[^\s\u3000，。！？、）」』\])>\"'<]+(?<![.,;:!?])")
+
+
+def _linkify_bare_urls(text: str) -> str:
+    """Wrap bare ``https?://`` URLs as ``[url](url)`` so KOOK KMarkdown always renders them clickable."""
+
+    def _sub(m: re.Match[str]) -> str:
+        raw = m.group(0)
+        if raw.startswith("["):
+            return raw
+        return f"[{_escape_kmd_link_label(raw)}]({_escape_kmd_link_url(raw)})"
+
+    return _MD_LINK_OR_BARE_URL_RE.sub(_sub, text)
+
+
 def to_kmarkdown(
     text: str,
     *,
@@ -109,11 +124,12 @@ def to_kmarkdown(
     """Convert standard Markdown to clean KOOK KMarkdown without breaking code blocks.
 
     - ``channel_map`` (``channel_name -> channel_id``): upgrades ``#channel_name`` to ``(chn)<id>(chn)``.
-    - ``message_anchor_map`` (``db_msg_id -> bare KOOK anchor URL``): upgrades ``#msg:<id>`` (and Markdown
-      ``[label](#msg:<id>)``) to bare ``https://www.kookapp.cn/direct/anchor/{g}/{c}/{uuid}`` so KOOK renders
-      its native jump chip.
+    - ``message_anchor_map`` (``db_msg_id -> KOOK anchor URL``): upgrades ``#msg:<id>`` and
+      ``[label](#msg:<id>)`` to clickable ``[label](https://www.kookapp.cn/direct/anchor/...)`` links.
     - ``thread_channel_map`` (``thread_id -> (guild_id, channel_id)``): upgrades ``#thread:<tid>`` and
-      ``#thread:<tid>/<pid>`` to bare KOOK forum thread/reply anchor URLs.
+      ``#thread:<tid>/<pid>`` to clickable KOOK forum thread/reply anchor links.
+    - Bare ``http(s)://`` URLs outside code blocks are wrapped as ``[url](url)`` because KOOK KMarkdown
+      does not reliably auto-linkify unwrapped URLs inside cards.
     """
     stashed: list[str] = []
 
@@ -137,14 +153,16 @@ def to_kmarkdown(
     def stash_inline(m: re.Match[str]) -> str:
         inner = m.group(1).strip()
         # Models often wrap `#频道名`, `#msg:123`, or `#thread:...` in inline backticks (copying prompt examples).
-        # Unwrap exact known refs so KOOK renders native chips while keeping real inline code intact.
+        # Unwrap exact known refs so KOOK renders clickable links/tags while keeping real inline code intact.
         if inner.startswith("#"):
             if message_anchor_map and (mm := _SOURCE_MSG_ANCHOR_RE.match(inner)) and inner.startswith("#msg:"):
                 if url := message_anchor_map.get(int(mm.group(1))):
-                    return url
+                    return f"[原消息]({_escape_kmd_link_url(url)})"
             if thread_channel_map and (tm := _SOURCE_THREAD_ANCHOR_RE.match(inner)):
-                if url := _resolve_thread_url(tm.group(1), tm.group(2)):
-                    return url
+                tid, pid = tm.group(1), tm.group(2)
+                if url := _resolve_thread_url(tid, pid):
+                    label = "原回复" if pid else "原帖"
+                    return f"[{label}]({_escape_kmd_link_url(url)})"
             if norm_channels:
                 wanted = inner[1:].strip()
                 for cname, cid in norm_channels.items():
@@ -174,12 +192,12 @@ def to_kmarkdown(
         def _replace_md_anchor(m: re.Match[str]) -> str:
             label, mid = m.group(1), int(m.group(2))
             url = message_anchor_map.get(mid)
-            return f"[{label}]({url})" if url else label
+            return f"[{_escape_kmd_link_label(label)}]({_escape_kmd_link_url(url)})" if url else label
 
         def _replace_bare_anchor(m: re.Match[str]) -> str:
             mid = int(m.group(1))
             url = message_anchor_map.get(mid)
-            return url if url else f"#{mid}"
+            return f"[原消息]({_escape_kmd_link_url(url)})" if url else f"#{mid}"
 
         cleaned = _MD_MSG_ANCHOR_RE.sub(_replace_md_anchor, cleaned)
         cleaned = _BARE_MSG_ANCHOR_RE.sub(_replace_bare_anchor, cleaned)
@@ -189,16 +207,20 @@ def to_kmarkdown(
         def _replace_md_thread(m: re.Match[str]) -> str:
             label, tid, pid = m.group(1), m.group(2), m.group(3)
             url = _resolve_thread_url(tid, pid)
-            return f"[{label}]({url})" if url else label
+            return f"[{_escape_kmd_link_label(label)}]({_escape_kmd_link_url(url)})" if url else label
 
         def _replace_bare_thread(m: re.Match[str]) -> str:
             tid, pid = m.group(1), m.group(2)
             url = _resolve_thread_url(tid, pid)
-            return url if url else m.group(0)
+            if not url:
+                return m.group(0)
+            label = "原回复" if pid else "原帖"
+            return f"[{label}]({_escape_kmd_link_url(url)})"
 
         cleaned = _MD_THREAD_ANCHOR_RE.sub(_replace_md_thread, cleaned)
         cleaned = _BARE_THREAD_ANCHOR_RE.sub(_replace_bare_thread, cleaned)
 
+    cleaned = _linkify_bare_urls(cleaned)
     return _SLOT_RE.sub(lambda m: stashed[int(m.group(1))], cleaned).strip()
 
 
