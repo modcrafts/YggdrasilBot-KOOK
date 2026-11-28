@@ -22,6 +22,7 @@ from yggdrasil.gmod.server import build_gmod_app
 from yggdrasil.ops import tools as ops
 from yggdrasil.runtime import GModServerInfo, Snapshot
 from yggdrasil.settings import OpsToolName, Settings, ToolName
+from yggdrasil.tools import gmod_queue
 
 SID = "STEAM_0:0:146595760"
 SID64 = "76561198253457248"
@@ -44,6 +45,19 @@ ENTRY = {
 }
 SUMMARY = {"players": 78, "max_slots": 80, "total_queued": 2}
 TICKET = {"kind": "admin_singlepass", "remaining_s": 285}
+
+
+@pytest.fixture
+def linked_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def binding(kook_id: str, *, timeout_s: float) -> dict[str, Any]:
+        assert kook_id == "123"
+        return {
+            "found": True,
+            "kook": {"linked": True, "user_id": kook_id},
+            "steam": {"linked": True, "steamid64": SID64},
+        }
+
+    monkeypatch.setattr(gmod_queue, "lookup_by_kook", binding)
 
 
 @pytest.mark.parametrize(
@@ -209,6 +223,7 @@ def audits(monkeypatch: pytest.MonkeyPatch) -> list[ConfigAudit]:
 
 
 @pytest.mark.parametrize("in_queue", [True, False])
+@pytest.mark.usefixtures("linked_caller")
 async def test_chat_queue_lookup(game_server: httpx.AsyncClient, chat_ctx: RunContext[Deps], in_queue: bool) -> None:
     payload = {
         "steamid": SID,
@@ -225,13 +240,14 @@ async def test_chat_queue_lookup(game_server: httpx.AsyncClient, chat_ctx: RunCo
         {"steamid": SID},
         data=payload,
     )
-    assert json.loads(result) == {**payload, "server_id": MAIN.id, "server_name": MAIN.name}
+    assert json.loads(result) == {"ticket": None, **payload, "server_id": MAIN.id, "server_name": MAIN.name}
 
 
 @pytest.mark.parametrize(
     ("entries", "tickets"),
     [([ENTRY], [{"steamid": SID, "steamid64": SID64, **TICKET}]), ({}, None), ([], {})],
 )
+@pytest.mark.usefixtures("linked_caller")
 async def test_chat_queue_list(
     game_server: httpx.AsyncClient, chat_ctx: RunContext[Deps], entries: Any, tickets: Any
 ) -> None:
@@ -329,6 +345,7 @@ async def test_ops_read_tools(game_server: httpx.AsyncClient, ops_ctx: RunContex
     assert ops_ctx.deps.actions == []
 
 
+@pytest.mark.usefixtures("linked_caller")
 async def test_chat_queue_pages(game_server: httpx.AsyncClient, chat_ctx: RunContext[Deps]) -> None:
     entries = [{**ENTRY, "position": n} for n in range(1, 22)]
     data = {"entries": entries, "active_tickets": [{"steamid64": SID64, **TICKET}]}
@@ -337,7 +354,7 @@ async def test_chat_queue_pages(game_server: httpx.AsyncClient, chat_ctx: RunCon
         return json.loads(await run_rpc(game_server, call, "ncg.queue.list", {}, data=data))
 
     summary = await query(chat_tools.gmod_queue_list(chat_ctx))
-    assert summary == {"server_id": MAIN.id, "server_name": MAIN.name, "total_queued": 21, "active_ticket_count": 1}
+    assert summary == {"server_id": MAIN.id, "server_name": MAIN.name, "total_queued": 21}
     first = await query(chat_tools.gmod_queue_list(chat_ctx, view="roster"))
     assert first["columns"] == ["position", "nick", "tier", "wait_s"]
     assert first["rows"] == [[n, "RAY", "regular", 135] for n in range(1, 21)]
@@ -350,6 +367,78 @@ async def test_chat_queue_pages(game_server: httpx.AsyncClient, chat_ctx: RunCon
     invalid = await chat_tools.gmod_queue_list(chat_ctx, view="full", page=2)
     assert isinstance(invalid, str)
     assert invalid.startswith("[工具错误]")
+
+
+@pytest.mark.usefixtures("linked_caller")
+async def test_ticket_visibility_across_players(
+    game_server: httpx.AsyncClient, chat_ctx: RunContext[Deps], ops_ctx: RunContext[ops.OpsDeps]
+) -> None:
+    other, other64 = normalize_steamid("STEAM_0:1:123")
+    hidden = {"kind": "hidden-pass", "remaining_s": 123}
+    entry = {
+        **ENTRY,
+        "steamid": other,
+        "steamid64": other64,
+        "has_ticket": True,
+        "ticket_kind": "hidden-pass",
+        "ticket_remaining_s": 123,
+    }
+    player = {"steamid": other, "steamid64": other64, "ticket": hidden, "entry": entry}
+    for tool in (
+        chat_tools.gmod_queue_lookup(chat_ctx, other, view="summary"),
+        chat_tools.gmod_queue_lookup(chat_ctx, other64, view="full"),
+    ):
+        raw = await run_rpc(game_server, tool, "ncg.queue.lookup", {"steamid": other}, data=player)
+        assert "ticket" not in raw
+        result = json.loads(raw)
+        assert result.get("entry", result)["position"] == ENTRY["position"]
+
+    private = {"steamid64": other64, **hidden}
+    own = {"steamid64": SID64, **TICKET}
+    data = {"entries": [entry, ENTRY], "active_tickets": [private] * 20 + [own]}
+    for tool in (
+        chat_tools.gmod_queue_list(chat_ctx, view="full"),
+        chat_tools.gmod_queue_list(chat_ctx, view="tickets"),
+    ):
+        raw = await run_rpc(game_server, tool, "ncg.queue.list", {}, data=data)
+        assert "hidden-pass" not in raw
+        result = json.loads(raw)
+        if "entries" in result:
+            assert result["active_tickets"] == [own]
+            assert "has_ticket" not in result["entries"][0]
+            assert "ticket_remaining_s" not in result["entries"][0]
+        else:
+            assert result["rows"] == [[SID64, TICKET["kind"], TICKET["remaining_s"]]]
+            assert result["total"] == 1
+            assert "next_page" not in result
+
+    for tool in (ops.gmod_queue_lookup(ops_ctx, other64), ops.gmod_queue_lookup(ops_ctx, other64, view="full")):
+        result = json.loads(await run_rpc(game_server, tool, "ncg.queue.lookup", {"steamid": other}, data=player))
+        assert result["ticket"] == hidden
+
+    raw = await run_rpc(game_server, ops.gmod_queue_list(ops_ctx, view="full"), "ncg.queue.list", {}, data=data)
+    assert json.loads(raw)["entries"] == data["entries"]
+    assert json.loads(raw)["active_tickets"] == data["active_tickets"]
+    raw = await run_rpc(game_server, ops.gmod_queue_list(ops_ctx, view="tickets"), "ncg.queue.list", {}, data=data)
+    assert json.loads(raw)["rows"] == [[other64, hidden["kind"], hidden["remaining_s"]]] * 20
+    assert json.loads(raw)["total"] == 21
+
+
+async def test_unverified_caller_cannot_read_tickets(
+    game_server: httpx.AsyncClient, chat_ctx: RunContext[Deps]
+) -> None:
+    # No Azuriom credentials: skip all private fields, including a negative status.
+    result = await chat_tools.gmod_queue_list(chat_ctx, view="tickets")
+    assert "无法确认调用者" in str(result)
+    data = {"steamid": SID, "entry": ENTRY, "ticket": TICKET}
+    raw = await run_rpc(
+        game_server,
+        chat_tools.gmod_queue_lookup(chat_ctx, SID, view="full"),
+        "ncg.queue.lookup",
+        {"steamid": SID},
+        data=data,
+    )
+    assert "ticket" not in raw
 
 
 @pytest.mark.parametrize(

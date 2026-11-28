@@ -319,14 +319,14 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         id="gmod_queue_lookup",
         name="GMod 玩家排队查询",
         category="gmod",
-        description="按 SteamID 或 SteamID64 查看玩家排队位次、进服状态及通行证。",
+        description="按 SteamID 或 SteamID64 查看玩家排队位次和进服状态，通行证仅本人可查。",
         handlers=("chat",),
     ),
     ToolSpec(
         id="gmod_queue_list",
         name="GMod 队列查询",
         category="gmod",
-        description="查看游戏服人数与容量，可选排队名单、有效通行证或完整详情。",
+        description="查看游戏服人数与容量，可选排队名单、本人通行证或队列详情。",
         handlers=("chat",),
     ),
     ToolSpec(
