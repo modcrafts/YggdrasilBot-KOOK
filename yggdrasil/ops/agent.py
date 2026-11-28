@@ -1,6 +1,7 @@
 """The ops agent: a superuser's natural-language admin instruction, carried out with ops tools."""
 
 import contextlib
+import json
 import secrets
 import time
 from datetime import datetime
@@ -22,6 +23,7 @@ from yggdrasil.delivery.send import react, send_kmarkdown
 from yggdrasil.ingest.normalize import normalize
 from yggdrasil.kook.client import Kook
 from yggdrasil.kook.model import Incoming, Message
+from yggdrasil.kook.segments import MentionData
 from yggdrasil.llm.errors import describe
 from yggdrasil.llm.registry import TaskNotConfigured, chat_model, record_usage
 from yggdrasil.llm.streaming import drain_events
@@ -50,7 +52,7 @@ async def _quoted(incoming: Incoming, self_id: str, bot_name: str) -> QuotedMess
     return QuotedMessage(r.message_id, r.sender.user_id == self_id, normalize(r.segments, people.mention).text)
 
 
-def _display(incoming: Incoming) -> ChatContextDisplay:
+def _display(incoming: Incoming, blocks: list[str]) -> ChatContextDisplay:
     def snapshot_of(m: Message) -> ChatMessage:
         return ChatMessage(
             kook_message_id=m.message_id,
@@ -62,19 +64,37 @@ def _display(incoming: Incoming) -> ChatContextDisplay:
         )
 
     quoted = snapshot_of(incoming.reply) if incoming.reply is not None else None
-    blocks = ["被引用的消息", "指令"] if quoted else ["指令"]
     return ChatContextDisplay(trigger=snapshot_of(incoming), quoted=quoted, blocks=blocks)
 
 
-def _prompt(instruction: str, quoted: QuotedMessage | None, nonce: str) -> str:
-    def block(tag: str, body: str) -> str:
-        return f"<{tag}-{nonce}>\n{body.replace(nonce, '*' * len(nonce))}\n</{tag}-{nonce}>"
+def _mention_context(incoming: Incoming) -> str | None:
+    """Keep native member mentions in place, even next to identical hand-typed names."""
+    parts: list[str | MentionData] = []
+    for segment in incoming.segments:
+        data = segment["data"]
+        if segment["type"] == "text":
+            parts.append(data["text"])
+        elif segment["type"] == "mention":
+            uid = str(data.get("user_id") or "")
+            if uid != incoming.self_id and uid.isascii() and uid.isdecimal():
+                parts.append(MentionData(user_id=uid, name=data.get("name") or ""))
+    if any(isinstance(part, dict) for part in parts):
+        return json.dumps(parts, ensure_ascii=False)
+    return None
 
-    parts = []
+
+def _prompt(incoming: Incoming, instruction: str, quoted: QuotedMessage | None, nonce: str) -> tuple[str, list[str]]:
+    blocks: dict[str, str] = {}
+
     if quoted is not None:
-        parts.append(block("被引用的消息", ("（你自己发的）" if quoted.is_self else "") + quoted.text))
-    parts.append(block("指令", instruction.strip()))
-    return "\n\n".join(parts)
+        blocks["被引用的消息"] = ("（你自己发的）" if quoted.is_self else "") + quoted.text
+    if mentions := _mention_context(incoming):
+        blocks["成员提及"] = mentions
+    blocks["指令"] = instruction.strip()
+    parts = [
+        f"<{tag}-{nonce}>\n{body.replace(nonce, '*' * len(nonce))}\n</{tag}-{nonce}>" for tag, body in blocks.items()
+    ]
+    return "\n\n".join(parts), list(blocks)
 
 
 async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
@@ -103,10 +123,11 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
         grant=grant,
     )
     deps.notes = TraceNotes(full=settings.privacy.capture_llm_content, bot=(ident.self_id, settings.persona.name))
+    nonce = "ops" + secrets.token_hex(3)  # A nonce scrubbed from message text must never match digits in a user ID.
+    prompt, blocks = _prompt(incoming, instruction, deps.quoted, nonce)
     if deps.notes.full:
-        deps.notes.context = _display(incoming)
+        deps.notes.context = _display(incoming, blocks)
     recorder = TranscriptRecorder()
-    nonce = secrets.token_hex(3)
     ch_name = snap.channel_name(channel_id) if channel_id else ""
     g_name = snap.guild_name(guild_id) if guild_id else ""
     where = f"服务器「{g_name}」频道 #{ch_name}（{channel_id}）" if channel_id is not None else "私聊"
@@ -157,7 +178,7 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
                 retries=2,
             )
             result = await agent.run(
-                _prompt(instruction, deps.quoted, nonce),
+                prompt,
                 deps=deps,
                 model_settings=resolved.settings,
                 usage_limits=resolved.limits,
