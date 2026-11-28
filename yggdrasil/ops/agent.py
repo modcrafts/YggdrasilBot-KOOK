@@ -1,5 +1,6 @@
 """The ops agent: a superuser's natural-language admin instruction, carried out with ops tools."""
 
+import contextlib
 import secrets
 import time
 from datetime import datetime
@@ -9,6 +10,7 @@ from opentelemetry import trace
 from pydantic_ai import Agent
 from pydantic_ai.usage import RunUsage, UsageLimits
 
+from yggdrasil.agent.media import keep_context_images
 from yggdrasil.agent.schema import OpsReply
 from yggdrasil.bot.state import identity
 from yggdrasil.core.log import LOGGER
@@ -185,20 +187,25 @@ async def run_ops(kook: Kook, incoming: Incoming, instruction: str) -> Outcome:
     elapsed = time.perf_counter() - started
     INVOCATIONS.add(1, {"handler": "ops", "outcome": outcome})
     INVOCATION_DURATION.record(elapsed, {"handler": "ops"})
-    async with get_session() as s:
-        row = await s.get(Invocation, invocation_id)
-        if row is not None:
-            row.status = outcome
-            row.models = [resolved.label]
-            row.tool_calls = dict(deps.tool_counts)
-            row.tokens_in = usage.input_tokens
-            row.tokens_out = usage.output_tokens
-            row.tokens_cached = usage.cache_read_tokens
-            row.duration_ms = int(elapsed * 1000)
-            row.reply = reply.model_dump() if reply else None
-            row.error = error
-    if recorder.history or recorder.tools:
-        await transcripts.save_invocation(invocation_id, recorder, deps.notes, channel_id, guild_id)
+    # Delivery already happened. Publish the final transcript before polling can stop at the terminal status.
+    try:
+        if recorder.history or recorder.tools:
+            with contextlib.suppress(Exception):
+                await keep_context_images(deps.notes, channel_id)
+            await transcripts.save_invocation(invocation_id, recorder, deps.notes, channel_id, guild_id)
+    finally:
+        async with get_session() as s:
+            row = await s.get(Invocation, invocation_id)
+            if row is not None:
+                row.status = outcome
+                row.models = [resolved.label]
+                row.tool_calls = dict(deps.tool_counts)
+                row.tokens_in = usage.input_tokens
+                row.tokens_out = usage.output_tokens
+                row.tokens_cached = usage.cache_read_tokens
+                row.duration_ms = int(elapsed * 1000)
+                row.reply = reply.model_dump() if reply else None
+                row.error = error
     return outcome
 
 

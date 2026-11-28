@@ -90,7 +90,7 @@ async def build_context(
     if notes.bot:
         names[notes.bot[0]] = notes.bot[1]
     context["names"] = names
-    context["image_keys"] = notes.image_keys
+    context["image_keys"] = dict(notes.image_keys)
     return context
 
 
@@ -106,8 +106,11 @@ async def save_invocation(
     try:
         items = entries(recorder, notes, live=live)
         context = await build_context(notes, channel_id, guild_id, items)
-        await store_blobs(notes.blobs)
         payload = dump(items)
+        new_blobs = {sha: blob for sha, blob in notes.blobs.items() if sha not in notes.stored_blobs}
+        if new_blobs:
+            await store_blobs(new_blobs)
+            notes.stored_blobs.update(new_blobs)
         values = {
             "invocation_id": invocation_id,
             "source": "pydantic-ai",

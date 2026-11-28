@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import PurePath, PurePosixPath
+from typing import Any
 
 import httpx
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageSequence, ImageStat
@@ -17,11 +18,15 @@ from yggdrasil.agent.deps import Handle
 from yggdrasil.core.log import LOGGER
 from yggdrasil.tools.errors import ToolError
 from yggdrasil.tools.ssrf import guarded_client
+from yggdrasil.transcript.notes import TraceNotes
 from yggdrasil.transcript.store import blob as stored_blob
 
 IMAGE_MAX_DOWNLOAD = 20 * 1024 * 1024
 _IMAGE_MAX_SIDE = 1568
 _IMAGE_MAX_BYTES = 3 * 1024 * 1024
+_CONTEXT_IMAGE_LIMIT = 12
+_CONTEXT_IMAGE_TIMEOUT_S = 5
+_CONTEXT_IMAGE_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP")
 
 _SHEET_MAX_FRAMES = 16
 _SAMPLE_STEP_MS = 100
@@ -279,3 +284,43 @@ async def load_images(handles: list[Handle]) -> list[tuple[str, ModelImage]]:
         else:
             loaded.append((h.key, result))
     return loaded
+
+
+async def keep_context_images(notes: TraceNotes, channel_id: str | None) -> None:
+    """Retain a bounded set of raster images from this channel's request and native reply context."""
+    context = notes.context
+    if not notes.full or context is None:
+        return
+
+    wanted: dict[str, dict[str, Any]] = {}
+    for message in (context.trigger, context.quoted, *context.chain):
+        if message is None or message.channel_id != channel_id or message.recalled:
+            continue
+        for segment in message.segments:
+            data = segment.get("data")
+            if segment.get("type") != "image" or not isinstance(data, dict) or data.get("blob"):
+                continue
+            url = data.get("url")
+            if isinstance(url, str) and url and url not in notes.image_keys:
+                wanted.setdefault(url, data)
+            if len(wanted) >= _CONTEXT_IMAGE_LIMIT:
+                break
+        if len(wanted) >= _CONTEXT_IMAGE_LIMIT:
+            break
+
+    async def keep(url: str) -> None:
+        # KOOK Cards can point at arbitrary hosts, even when the segment has no source.
+        image = await download(url, _IMAGE_MAX_BYTES, guarded=True)
+        with Image.open(io.BytesIO(image), formats=_CONTEXT_IMAGE_FORMATS) as parsed:
+            mime = parsed.get_format_mimetype()
+        if mime:
+            notes.image(image, mime, segment=wanted[url])
+
+    if not wanted:
+        return
+    try:
+        async with asyncio.timeout(_CONTEXT_IMAGE_TIMEOUT_S):
+            await asyncio.gather(*(keep(url) for url in wanted), return_exceptions=True)
+    except TimeoutError:
+        # Successful downloads have already been added to the transcript.
+        pass

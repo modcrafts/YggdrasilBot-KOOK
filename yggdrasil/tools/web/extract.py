@@ -34,14 +34,33 @@ def extract_html(html: str, url: str) -> tuple[str, str]:
         )
         or ""
     ).strip()
-    meta = trafilatura.extract_metadata(html, default_url=url)
-    title = (meta.title or "") if meta is not None else ""
+    title = _title(html)
     if len(text) < MIN_TEXT_CHARS:
         fallback_title, fallback = _readability(html)
         if len(fallback) > len(text):
             text = fallback
         title = title or fallback_title
     return title.strip(), _JUNK_LINE_RE.sub("", text).strip()
+
+
+def _title(html: str) -> str:
+    """Read title tags directly, keeping trafilatura's heading and title-tag heuristics."""
+    from trafilatura.metadata import METANAME_TITLE, extract_title
+    from trafilatura.utils import load_html
+
+    tree = load_html(html)
+    if tree is None:
+        return ""
+    named = ""
+    for meta in tree.iterfind(".//head/meta[@content]"):
+        content = (meta.get("content") or "").strip()
+        if not content:
+            continue
+        if (meta.get("property") or "").lower() == "og:title":
+            return content
+        if not named and (meta.get("name") or "").lower() in METANAME_TITLE:
+            named = content
+    return named or extract_title(tree) or ""
 
 
 def page_images(html: str, url: str, limit: int = MAX_PAGE_IMAGES) -> tuple[list[str], list[str]]:

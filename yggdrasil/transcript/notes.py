@@ -40,6 +40,7 @@ class TraceNotes:
     bridge: dict[str, list[BridgeCall]] = field(default_factory=dict)
     context: ChatContextDisplay | None = None
     bot: tuple[str, str] | None = None  # (user_id, persona name)
+    stored_blobs: set[str] = field(default_factory=set, init=False)  # committed by an earlier flush
 
     def show(self, call_id: str | None, display: Display) -> None:
         if self.full and call_id:

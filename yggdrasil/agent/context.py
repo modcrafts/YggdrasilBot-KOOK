@@ -38,10 +38,12 @@ class TargetMessage:
     segments: list[dict[str, Any]]
     is_self: bool
     sent_at: datetime | None = None
+    channel_id: str | None = None
 
     def snapshot(self) -> ChatMessage:
         return ChatMessage(
             kook_message_id=self.kook_message_id,
+            channel_id=self.channel_id,
             user_id=self.user_id,
             sender_name=self.sender_name,
             sent_at=self.sent_at,
@@ -86,6 +88,7 @@ def _ts(dt: datetime | None) -> str:
 def trigger_message(incoming: Incoming, self_id: str) -> TargetMessage:
     return TargetMessage(
         kook_message_id=incoming.message_id,
+        channel_id=incoming.channel_id,
         user_id=incoming.user_id,
         sender_name=incoming.sender.name.strip(),
         text=normalize(incoming.segments).text,
@@ -120,6 +123,7 @@ async def target_message(incoming: Incoming, resolved: Resolved, self_id: str) -
             segs = await _own_segments(incoming.channel_id, r.message_id) or segs
         return TargetMessage(
             kook_message_id=r.message_id,
+            channel_id=r.channel_id,
             user_id=r.sender.user_id,
             sender_name=r.sender.name.strip(),
             text=normalize(segs).text,

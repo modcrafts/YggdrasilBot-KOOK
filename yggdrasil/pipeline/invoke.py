@@ -19,6 +19,7 @@ from yggdrasil.agent import bridge
 from yggdrasil.agent.budget import ToolBudget
 from yggdrasil.agent.context import build_context, build_followup_context
 from yggdrasil.agent.deps import Deps, Handles
+from yggdrasil.agent.media import keep_context_images
 from yggdrasil.agent.permissions import Role, may_recall, speaker_role
 from yggdrasil.agent.schema import BotReply
 from yggdrasil.agent.skills import skill_names, skills_for
@@ -219,7 +220,8 @@ class Invocator:
             finally:
                 self._stop_slow()
                 span.set_attribute("ygg.status", status)
-                self.meta.total_s = self.elapsed()
+                if not self._finished:
+                    self.meta.total_s = self.elapsed()
                 INVOCATIONS.add(1, {"handler": self.record_handler, "outcome": status})
                 INVOCATION_DURATION.record(self.meta.total_s, {"handler": self.record_handler})
                 if not self._finished:
@@ -227,11 +229,6 @@ class Invocator:
                 if self.sandbox is not None:
                     with contextlib.suppress(Exception):
                         await self.sandbox.close()
-                await self._flusher.close()
-                if self.invocation_id is not None and (self.recorder.history or self.recorder.tools):
-                    await transcripts.save_invocation(
-                        self.invocation_id, self.recorder, self.notes, self.channel_id, self.guild_id
-                    )
         return status
 
     async def _start_row(self, request_text: str) -> None:
@@ -253,10 +250,24 @@ class Invocator:
     async def _finish(self, status: str, error: str | None, **extra: object) -> None:
         self._finished = True
         self.meta.total_s = self.elapsed()
-        await ratelimit.add_tokens(self.channel_id, self._billable_tokens())
+        await self._flusher.close()
+        try:
+            await ratelimit.add_tokens(self.channel_id, self._billable_tokens())
+        except Exception:
+            LOGGER.exception("recording token usage for invocation {} failed", self.invocation_id)
         if self.invocation_id is None:
             return
-        await record.finish_row(self.invocation_id, status, error, self.meta, self.ack_kind, **extra)
+        # Keep the row running until the console can read the final transcript. Delivery already happened.
+        try:
+            if self.recorder.history or self.recorder.tools:
+                if not self.watch.recalled:
+                    with contextlib.suppress(Exception):
+                        await keep_context_images(self.notes, self.channel_id)
+                await transcripts.save_invocation(
+                    self.invocation_id, self.recorder, self.notes, self.channel_id, self.guild_id
+                )
+        finally:
+            await record.finish_row(self.invocation_id, status, error, self.meta, self.ack_kind, **extra)
 
     def _billable_tokens(self) -> int:
         return self.meta.tokens_in + self.meta.tokens_out

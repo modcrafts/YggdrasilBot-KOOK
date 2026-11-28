@@ -3,6 +3,8 @@ content capture off."""
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
 
@@ -13,7 +15,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from yggdrasil.transcript import store as transcript_store
 from yggdrasil.transcript.capture import TranscriptRecorder, entries, live_stats
-from yggdrasil.transcript.notes import TraceNotes, blob_id
+from yggdrasil.transcript.notes import Blob, TraceNotes, blob_id
 from yggdrasil.transcript.schema import ChatContextDisplay, ChatMessage, Entry, ImagePart
 from yggdrasil.transcript.schema import ToolCallPart as TcPart
 
@@ -220,3 +222,48 @@ async def test_live_progress_omits_in_flight_tool_and_flusher_coalesces(monkeypa
         await task
     # Final non-live snapshot marks the interrupted tool cancelled
     assert _kinds(entries(recorder, notes, live=False)) == ["system", "user", "assistant", "tool:slow:cancelled"]
+
+
+async def test_transcript_flushes_only_new_blobs_after_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+    notes = TraceNotes()
+    recorder = TranscriptRecorder()
+    first_url = "https://example.org/first.png"
+    second_url = "https://example.org/second.png"
+    first = notes.image(PNG, "image/png", segment={"url": first_url})
+    assert first is not None
+    second_bytes = PNG + b"-second"
+    second = blob_id(second_bytes)
+    batches: list[set[str]] = []
+    saved: list[dict[str, Any]] = []
+
+    async def store_blobs(blobs: dict[str, Blob]) -> None:
+        batches.append(set(blobs))
+        if len(batches) == 1:
+            raise RuntimeError("the blob transaction did not commit")
+        if len(batches) == 2:
+            # The agent can add a new image while the first blob batch is committing.
+            notes.image(second_bytes, "image/png", segment={"url": second_url})
+
+    class Session:
+        async def execute(self, stmt: Any) -> None:
+            saved.append(stmt.compile().params["context"])
+
+    @asynccontextmanager
+    async def session() -> AsyncIterator[Session]:
+        yield Session()
+
+    monkeypatch.setattr(transcript_store, "get_session", session)
+    monkeypatch.setattr(transcript_store, "store_blobs", store_blobs)
+    invocation_id = uuid4()
+    await transcript_store.save_invocation(invocation_id, recorder, notes, "channel", live=True)
+    assert not saved
+    assert not notes.stored_blobs
+
+    await transcript_store.save_invocation(invocation_id, recorder, notes, "channel", live=True)
+    assert saved[-1]["image_keys"] == {first_url: first}
+    await transcript_store.save_invocation(invocation_id, recorder, notes, "channel", live=True)
+    await transcript_store.save_invocation(invocation_id, recorder, notes, "channel")
+
+    assert batches == [{first}, {first}, {second}]
+    assert len(saved) == 3
+    assert saved[-1]["image_keys"] == {first_url: first, second_url: second}
