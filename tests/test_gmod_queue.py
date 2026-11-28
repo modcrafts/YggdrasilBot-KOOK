@@ -13,7 +13,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 
 from yggdrasil.agent.deps import Deps, Handles
-from yggdrasil.agent.tools import ALL_TOOLS, tool_names
+from yggdrasil.agent.tools import ALL_TOOLS, tool_names, tools_for
 from yggdrasil.agent.tools import gmod as chat_tools
 from yggdrasil.agent.tools.base import ToolResult
 from yggdrasil.db.models import ConfigAudit
@@ -219,7 +219,11 @@ async def test_chat_queue_lookup(game_server: httpx.AsyncClient, chat_ctx: RunCo
         **({"entry": ENTRY} if in_queue else {"ticket": TICKET}),
     }
     result = await run_rpc(
-        game_server, chat_tools.gmod_queue_lookup(chat_ctx, SID64), "ncg.queue.lookup", {"steamid": SID}, data=payload
+        game_server,
+        chat_tools.gmod_queue_lookup(chat_ctx, SID64, view="full"),
+        "ncg.queue.lookup",
+        {"steamid": SID},
+        data=payload,
     )
     assert json.loads(result) == {**payload, "server_id": MAIN.id, "server_name": MAIN.name}
 
@@ -233,7 +237,7 @@ async def test_chat_queue_list(
 ) -> None:
     payload = {"entries": entries, "active_tickets": tickets, "summary": SUMMARY, "server_time": 1764258000}
     result = await run_rpc(
-        game_server, chat_tools.gmod_queue_list(chat_ctx, MAIN.name), "ncg.queue.list", {}, data=payload
+        game_server, chat_tools.gmod_queue_list(chat_ctx, MAIN.name, view="full"), "ncg.queue.list", {}, data=payload
     )
     assert json.loads(result) == {
         **payload,
@@ -281,15 +285,39 @@ def test_queue_tool_permissions() -> None:
 
     grant = ops.OpsGrant(False, frozenset(read | {"gmod_queue_letin"}), frozenset(), True)
     deps = ops.OpsDeps(kook=None, user_id="123", channel_id="channel", guild_id="guild", grant=grant)  # pyright: ignore[reportArgumentType]
-    assert {tool.name for tool in ops.ops_tools(deps)} == read | {"gmod_queue_letin"}
+    ops_tools = ops.ops_tools(deps)
+    assert {tool.name for tool in ops_tools} == read | {"gmod_queue_letin"}
+    for tool in [*ops_tools, *tools_for(sorted(read))]:
+        if tool.name in read:
+            props = tool.tool_def.parameters_json_schema["properties"]
+            assert props["view"]["default"] == "summary"
+            if tool.name == "gmod_queue_list":
+                assert set(props["view"]["enum"]) == {"summary", "roster", "tickets", "full"}
+                assert props["page"]["minimum"] == 1
 
 
 async def test_ops_read_tools(game_server: httpx.AsyncClient, ops_ctx: RunContext[ops.OpsDeps]) -> None:
-    payload = {"steamid": SID, "in_queue": True, "entry": ENTRY, "summary": SUMMARY}
+    payload = {
+        "steamid": SID,
+        "in_queue": True,
+        "in_server": False,
+        "entry": ENTRY,
+        "ticket": TICKET,
+        "summary": SUMMARY,
+    }
     result = await run_rpc(
         game_server, ops.gmod_queue_lookup(ops_ctx, SID), "ncg.queue.lookup", {"steamid": SID}, data=payload
     )
-    assert json.loads(result)["entry"] == ENTRY
+    assert json.loads(result) == {
+        "server_id": MAIN.id,
+        "server_name": MAIN.name,
+        "in_queue": True,
+        "in_server": False,
+        "nick": "RAY",
+        "position": 2,
+        "wait_s": 135,
+        "ticket": TICKET,
+    }
     result = await run_rpc(
         game_server,
         ops.gmod_queue_list(ops_ctx),
@@ -297,9 +325,31 @@ async def test_ops_read_tools(game_server: httpx.AsyncClient, ops_ctx: RunContex
         {},
         data={"summary": SUMMARY, "entries": [ENTRY], "active_tickets": {}},
     )
-    assert json.loads(result)["entries"] == [ENTRY]
-    assert json.loads(result)["active_tickets"] == []
+    assert json.loads(result) == {"server_id": MAIN.id, "server_name": MAIN.name, **SUMMARY, "active_ticket_count": 0}
     assert ops_ctx.deps.actions == []
+
+
+async def test_chat_queue_pages(game_server: httpx.AsyncClient, chat_ctx: RunContext[Deps]) -> None:
+    entries = [{**ENTRY, "position": n} for n in range(1, 22)]
+    data = {"entries": entries, "active_tickets": [{"steamid64": SID64, **TICKET}]}
+
+    async def query(call: Awaitable[ToolResult]) -> dict[str, Any]:
+        return json.loads(await run_rpc(game_server, call, "ncg.queue.list", {}, data=data))
+
+    summary = await query(chat_tools.gmod_queue_list(chat_ctx))
+    assert summary == {"server_id": MAIN.id, "server_name": MAIN.name, "total_queued": 21, "active_ticket_count": 1}
+    first = await query(chat_tools.gmod_queue_list(chat_ctx, view="roster"))
+    assert first["columns"] == ["position", "nick", "tier", "wait_s"]
+    assert first["rows"] == [[n, "RAY", "regular", 135] for n in range(1, 21)]
+    last = await query(chat_tools.gmod_queue_list(chat_ctx, view="roster", page=first["next_page"]))
+    assert (last["page"], last["total"], last["rows"]) == (2, 21, [[21, "RAY", "regular", 135]])
+    assert "next_page" not in last
+    tickets = await query(chat_tools.gmod_queue_list(chat_ctx, view="tickets"))
+    assert tickets["columns"] == ["steamid64", "kind", "remaining_s"]
+    assert tickets["rows"] == [[SID64, "admin_singlepass", 285]]
+    invalid = await chat_tools.gmod_queue_list(chat_ctx, view="full", page=2)
+    assert isinstance(invalid, str)
+    assert invalid.startswith("[工具错误]")
 
 
 @pytest.mark.parametrize(

@@ -34,13 +34,14 @@ from yggdrasil.db.models import (
     TaskRoute,
 )
 from yggdrasil.db.session import get_session
-from yggdrasil.gmod import GModError, grant_singlepass, letin_player, list_queue, lookup_queue
+from yggdrasil.gmod import GModError, grant_singlepass, letin_player
 from yggdrasil.kook.client import Kook
 from yggdrasil.kook.model import Incoming, KookError
 from yggdrasil.kv import redis_client
 from yggdrasil.people import label, names_in_guilds, self_label
 from yggdrasil.runtime import snapshot
 from yggdrasil.settings import OpsToolName, Settings
+from yggdrasil.tools import gmod_queue
 from yggdrasil.tools.azuriom import AzuriomError, health_check, lookup_by_kook, lookup_by_steam
 from yggdrasil.tools.errors import ToolError
 from yggdrasil.transcript.notes import TraceNotes
@@ -915,22 +916,8 @@ async def gmod_ping(ctx: RunContext[OpsDeps], server_id: str) -> str:
     return _json({"server_id": res.server_id, "latency_ms": res.latency_ms, "data": res.data})
 
 
-@_op("gmod_queue_lookup")
-async def gmod_queue_lookup(ctx: RunContext[OpsDeps], steamid: str, server_id: str | None = None) -> str:
-    """按 SteamID 或 SteamID64 查询玩家的 GMod 排队位次、进服状态及通行证。可指定游戏服 ID 或名称。"""
-    try:
-        return _json(await lookup_queue(steamid, server_id))
-    except (ValueError, GModError) as e:
-        raise ToolError(str(e)) from e
-
-
-@_op("gmod_queue_list")
-async def gmod_queue_list(ctx: RunContext[OpsDeps], server_id: str | None = None) -> str:
-    """查询指定 GMod 游戏服的完整队列、容量和有效通行证。server_id 可填游戏服 ID 或名称。"""
-    try:
-        return _json(await list_queue(server_id))
-    except (ValueError, GModError) as e:
-        raise ToolError(str(e)) from e
+gmod_queue_lookup = _op("gmod_queue_lookup")(gmod_queue.gmod_queue_lookup)
+gmod_queue_list = _op("gmod_queue_list")(gmod_queue.gmod_queue_list)
 
 
 async def _audit_gmod_queue(actor: str, action: str, result: dict[str, Any]) -> None:
@@ -1153,11 +1140,11 @@ OPS_TOOL_SPECS: tuple[OpsToolSpec, ...] = (
     ),
     OpsToolSpec(
         "gmod_queue_list",
-        "GMod 完整队列",
+        "GMod 队列查询",
         "gmod",
         False,
         False,
-        "查看完整队列、游戏服容量与有效通行证。",
+        "查看游戏服人数与容量，可选排队名单、有效通行证或完整详情。",
         gmod_queue_list,
     ),
     OpsToolSpec(

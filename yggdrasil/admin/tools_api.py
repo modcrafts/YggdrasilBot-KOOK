@@ -324,9 +324,9 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         id="gmod_queue_list",
-        name="GMod 完整队列",
+        name="GMod 队列查询",
         category="gmod",
-        description="查看 GMod 游戏服的完整队列、容量及有效通行证。",
+        description="查看游戏服人数与容量，可选排队名单、有效通行证或完整详情。",
         handlers=("chat",),
     ),
     ToolSpec(
