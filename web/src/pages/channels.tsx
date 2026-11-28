@@ -804,6 +804,9 @@ function ScopeOverrideEditor({
                   <SchemaInput
                     schema={schema}
                     root={root}
+                    keyOptions={pathKey(path) === "ops.role_rules" ? rolesQ.data?.map((r) => ({
+                      value: r.role_id, label: `${r.name}（${r.role_id}）`,
+                    })) : undefined}
                     value={getAt(doc, path)}
                     onChange={(v) => setDoc(setAt(doc, path, v))}
                   />

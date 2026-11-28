@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
   ArrowUpRightIcon,
   CheckCircle2Icon,
@@ -65,6 +65,7 @@ import {
   Field,
   FilterBar,
   FormDialog,
+  GuildSelect,
   JsonEditor,
   Meta,
   MultiToggle,
@@ -154,6 +155,7 @@ function summarizeParams(tool: ToolItemOut): string[] {
 }
 
 export function ToolsPage() {
+  const hash = useLocation({ select: (location) => location.hash });
   const toolsQ = useQuery(getToolsOverviewOptions());
   const skillsQ = useQuery(getSkillsOverviewOptions());
   const opsQ = useQuery(getOpsToolsOverviewOptions());
@@ -175,7 +177,7 @@ export function ToolsPage() {
         }
       />
 
-      <Tabs defaultValue="tools">
+      <Tabs defaultValue={hash === "ops" ? "ops" : "tools"}>
         <TabsList className="mb-4">
           <TabsTrigger value="tools" className="gap-1.5">
             <WrenchIcon className="size-3.5" aria-hidden />
@@ -1659,6 +1661,7 @@ function OpsTab({
               />
               <Button
                 size="sm"
+                disabled={Boolean(scopeGuildId && !scopeSettingsQ.data)}
                 onClick={() =>
                   setEditingRule({
                     roleId: "",
@@ -1673,8 +1676,8 @@ function OpsTab({
           }
         />
 
-        {scopeGuildId && scopeSettingsQ.isLoading ? (
-          <QueryState isLoading variant="card" />
+        {scopeGuildId && !scopeSettingsQ.data ? (
+          <QueryState isLoading={scopeSettingsQ.isLoading} error={scopeSettingsQ.error} variant="card" />
         ) : Object.keys(activeRoleRules).length === 0 ? (
           <Empty
             icon={<ShieldIcon />}
@@ -1796,11 +1799,15 @@ function OpsTab({
           initial={editingRule}
           allTools={data.tools}
           globalWriteActions={data.kook_write_actions}
-          liveRoles={liveRolesQ.data ?? []}
+          scopeGuildId={scopeGuildId}
           existingRoleIds={Object.keys(activeRoleRules)}
           pending={saveGlobalOps.isPending || saveGuildScope.isPending}
-          onSave={(roleId, rule) => {
-            persistRoleRules({ ...activeRoleRules, [roleId]: rule }, () => setEditingRule(null));
+          onSave={(roleIds, rule) => {
+            const next = { ...activeRoleRules };
+            for (const id of roleIds) {
+              if (!editingRule.isNew || !Object.hasOwn(next, id)) next[id] = rule;
+            }
+            persistRoleRules(next, () => setEditingRule(null));
           }}
           onClose={() => setEditingRule(null)}
         />
@@ -1813,7 +1820,7 @@ function OpsRoleRuleDialog({
   initial,
   allTools,
   globalWriteActions,
-  liveRoles,
+  scopeGuildId,
   existingRoleIds,
   pending,
   onSave,
@@ -1822,13 +1829,22 @@ function OpsRoleRuleDialog({
   initial: { roleId: string; rule: OpsRoleRule; isNew: boolean };
   allTools: OpsToolOut[];
   globalWriteActions: string[];
-  liveRoles: { role_id: string; name: string }[];
+  scopeGuildId: string | null;
   existingRoleIds: string[];
   pending: boolean;
-  onSave: (roleId: string, rule: OpsRoleRule) => void;
+  onSave: (roleIds: string[], rule: OpsRoleRule) => void;
   onClose: () => void;
 }) {
-  const [roleId, setRoleId] = useState(initial.roleId);
+  const [roleText, setRoleText] = useState(initial.roleId);
+  const [sourceGuildId, setSourceGuildId] = useState(scopeGuildId);
+  const rolesQ = useQuery({
+    ...listKookGuildRolesOptions({ path: { guild_id: sourceGuildId ?? "" } }),
+    enabled: initial.isNew && Boolean(sourceGuildId),
+    retry: false,
+  });
+  const roleIds = [...new Set(roleText.split(/[\s,，]+/).filter(Boolean))];
+  const targets = initial.isNew ? roleIds.filter((id) => !existingRoleIds.includes(id)) : [initial.roleId];
+  const invalidIds = initial.isNew && targets.some((id) => !/^\d+$/.test(id));
   const [tools, setTools] = useState<OpsToolOut["id"][]>(initial.rule.tools ?? []);
   const [writes, setWrites] = useState<string[]>(initial.rule.kook_write_actions ?? []);
   const [guildOnly, setGuildOnly] = useState<boolean>(initial.rule.guild_only ?? true);
@@ -1837,8 +1853,8 @@ function OpsRoleRuleDialog({
     setTools((cur) => (checked ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)));
   };
 
-  const categories = ["read", "config", "moderation", "kook"] as const;
-  const availableLiveRoles = liveRoles.filter((r) => !existingRoleIds.includes(r.role_id) || r.role_id === initial.roleId);
+  const categories = [...new Set(allTools.map((t) => t.category))];
+  const cleanTools = guildOnly ? tools.filter((id) => !allTools.find((t) => t.id === id)?.global_only) : tools;
 
   return (
     <FormDialog
@@ -1847,38 +1863,50 @@ function OpsRoleRuleDialog({
       title={initial.isNew ? "添加 ops 角色授权" : `编辑角色 ${initial.roleId} 的 ops 授权`}
       description="被授权的角色在频道中 @bot ops <指令> 即可调用以下选中的管理工具。"
       onSubmit={() => {
-        const cleanTools = guildOnly
-          ? tools.filter((id) => !allTools.find((t) => t.id === id)?.global_only)
-          : tools;
-        onSave(roleId.trim(), {
+        onSave(targets, {
           tools: cleanTools,
           kook_write_actions: cleanTools.includes("kook_api") ? writes : [],
           guild_only: guildOnly,
         });
       }}
       pending={pending}
-      submitDisabled={!roleId.trim() || tools.length === 0}
+      submitLabel={initial.isNew && targets.length ? `授权给 ${targets.length} 个角色` : "保存"}
+      submitDisabled={!targets.length || invalidIds || !cleanTools.length}
       className="sm:max-w-2xl"
     >
-      <Field label="KOOK 角色 ID" hint="选择本服同步到的 KOOK 角色，或手动输入角色 ID">
-        <div className="grid gap-2">
-          {initial.isNew && availableLiveRoles.length > 0 && (
-            <OptionSelect
-              value={availableLiveRoles.some((r) => r.role_id === roleId) ? roleId : null}
-              onChange={(v) => v && setRoleId(v)}
-              placeholder="从本服 KOOK 角色中选择…"
-              options={availableLiveRoles.map((r) => ({ value: r.role_id, label: `${r.name}（${r.role_id}）` }))}
-            />
-          )}
-          <Input
-            required
-            disabled={!initial.isNew}
-            className="font-mono text-xs"
-            placeholder="例如 123456"
-            value={roleId}
-            onChange={(e) => setRoleId(e.target.value)}
-          />
+      {initial.isNew && !scopeGuildId && (
+        <Field label="从服务器选择角色" hint="授权将保存到全局默认规则。">
+          <GuildSelect value={sourceGuildId} onChange={setSourceGuildId} allLabel="手动输入角色 ID" />
+        </Field>
+      )}
+      {initial.isNew && sourceGuildId && (
+        <div role="group" aria-label="选择 KOOK 角色" className="grid max-h-40 gap-1 overflow-y-auto rounded-lg border p-2">
+          {rolesQ.data?.length ? rolesQ.data.map((r) => {
+            const existing = existingRoleIds.includes(r.role_id);
+            return (
+              <label key={r.role_id} className="flex items-center gap-2 px-1 py-0.5 text-sm">
+                <Checkbox
+                  disabled={existing}
+                  checked={!existing && roleIds.includes(r.role_id)}
+                  onCheckedChange={(checked) => setRoleText(
+                    (checked ? [...roleIds, r.role_id] : roleIds.filter((id) => id !== r.role_id)).join(", ")
+                  )}
+                />
+                {r.name} <span className="text-xs text-muted-foreground">{r.role_id}{existing && " · 已配置"}</span>
+              </label>
+            );
+          }) : <span className="text-xs text-muted-foreground">
+            {rolesQ.isLoading ? "正在获取角色…" : rolesQ.isError ? "读取角色失败，可手动输入角色 ID。" : "该服暂无角色，可手动输入角色 ID。"}
+          </span>}
         </div>
+      )}
+      <Field
+        label="KOOK 角色 ID"
+        hint={initial.isNew ? "支持多个 ID，用逗号或空格分隔。已有授权的角色会跳过。" : undefined}
+        error={invalidIds ? "角色 ID 必须是数字。" : undefined}
+      >
+        <Input disabled={!initial.isNew} className="font-mono text-xs" placeholder="例如 48796009"
+          value={roleText} onChange={(e) => setRoleText(e.target.value)} />
       </Field>
 
       <Field

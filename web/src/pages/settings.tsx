@@ -71,10 +71,10 @@ export function SettingsPage() {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle>{SECTION_LABELS[key] ?? key}</CardTitle>
-                  {key === "tools" && (
+                  {(key === "tools" || key === "ops") && (
                     <Button size="sm" variant="outline" asChild>
-                      <Link to="/tools">
-                        前往「工具与技能」页面
+                      <Link to="/tools" hash={key === "ops" ? "ops" : undefined}>
+                        {key === "ops" ? "按角色名称批量授权" : "前往「工具与技能」页面"}
                         <ArrowUpRightIcon data-icon="inline-end" className="size-3.5" />
                       </Link>
                     </Button>

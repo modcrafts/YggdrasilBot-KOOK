@@ -140,12 +140,14 @@ export function SchemaInput({
   root,
   value,
   onChange,
+  keyOptions,
 }: {
   id?: string;
   schema: JsonSchema;
   root: JsonSchema;
   value: unknown;
   onChange: (v: unknown) => void;
+  keyOptions?: { value: string; label: string }[];
 }) {
   const nullable = isNullable(schema);
   const s = resolveSchema(schema, root);
@@ -198,7 +200,7 @@ export function SchemaInput({
     if (typeOf(items) === "string") return <TagInput id={id} value={list} onChange={onChange} />;
   }
   if (type === "object" && typeof s.additionalProperties === "object") {
-    return <MapEditor schema={s.additionalProperties} root={root} value={value} onChange={onChange} />;
+    return <MapEditor schema={s.additionalProperties} root={root} value={value} onChange={onChange} keyOptions={keyOptions} />;
   }
   return <JsonEditor id={id} value={value} onChange={onChange} rows={4} />;
 }
@@ -208,17 +210,20 @@ function MapEditor({
   root,
   value,
   onChange,
+  keyOptions,
 }: {
   schema: JsonSchema;
   root: JsonSchema;
   value: unknown;
   onChange: (v: unknown) => void;
+  keyOptions?: { value: string; label: string }[];
 }) {
   const map = isPlainObject(value) ? value : {};
   const [newKey, setNewKey] = useState("");
   const itemSchema = resolveSchema(schema, root);
-  const add = () => {
-    const k = newKey.trim();
+  const availableOptions = keyOptions?.filter((option) => !(option.value in map));
+  const add = (key: string) => {
+    const k = key.trim();
     if (!k || k in map) return;
     onChange({ ...map, [k]: defaultsOf(itemSchema, root) });
     setNewKey("");
@@ -244,6 +249,15 @@ function MapEditor({
           <SchemaObject schema={itemSchema} root={root} value={v} onChange={(nv) => onChange({ ...map, [k]: nv })} />
         </div>
       ))}
+      {!!availableOptions?.length && (
+        <OptionSelect
+          aria-label="选择角色添加授权"
+          value={null}
+          placeholder="选择角色添加授权…"
+          options={availableOptions}
+          onChange={(key) => key && add(key)}
+        />
+      )}
       <div className="flex gap-2">
         <Input
           aria-label="新键名"
@@ -253,12 +267,12 @@ function MapEditor({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              add();
+              add(newKey);
             }
           }}
           className="max-w-72"
         />
-        <Button size="sm" variant="outline" onClick={add}>
+        <Button size="sm" variant="outline" onClick={() => add(newKey)}>
           <PlusIcon data-icon="inline-start" /> 添加
         </Button>
       </div>
@@ -269,6 +283,7 @@ function MapEditor({
 function defaultsOf(schema: JsonSchema, root: JsonSchema): unknown {
   const s = resolveSchema(schema, root);
   if (s.default !== undefined) return s.default;
+  if (s.type === "array" && !isNullable(schema)) return [];
   if (s.properties) return Object.fromEntries(Object.entries(s.properties).map(([k, v]) => [k, defaultsOf(v, root)]));
   return null;
 }
