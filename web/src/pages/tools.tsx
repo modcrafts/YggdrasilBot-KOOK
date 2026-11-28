@@ -36,6 +36,7 @@ import {
   listProvidersOptions,
   pingGmodServerMutation,
   putScopeSettingsMutation,
+  testAzuriomToolMutation,
   testProvenanceToolMutation,
   updateBuiltinSkillMutation,
   updateCustomSkillMutation,
@@ -98,6 +99,7 @@ const CATEGORY_META: { value: ToolCategory | "all"; label: string }[] = [
   { value: "render", label: "渲染与画图" },
   { value: "sandbox", label: "工作区套件" },
   { value: "gmod", label: "GMod 游戏服" },
+  { value: "azuriom", label: "Azuriom 网站" },
 ];
 
 const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
@@ -110,6 +112,7 @@ const OPS_CATEGORY_LABELS: Record<string, string> = {
   moderation: "审核与消息处理",
   kook: "KOOK API",
   gmod: "GMod 服务器",
+  azuriom: "Azuriom 网站",
 };
 
 function statusBadgeVariant(status: ToolStatus): "default" | "secondary" | "destructive" | "outline" {
@@ -389,6 +392,22 @@ function ToolsTab({
     onSuccess: () => toast.success("已保存工具配置并热更新"),
   });
 
+  const testAzuriom = useMutation({
+    ...testAzuriomToolMutation(),
+    onSuccess: (result) => {
+      if (!result.ok) {
+        toast.error(result.error || "Ygg Bridge 连接失败");
+        return;
+      }
+      const ready = result.kook_accounts_ready;
+      const kookStatus = ready == null ? "未知" : ready ? "就绪" : "未就绪";
+      toast.success("Ygg Bridge 连接成功", {
+        description: `延迟 ${result.latency_ms} ms · 插件版本 ${result.version || "未知"} · kook_accounts ${kookStatus}`,
+      });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Ygg Bridge 测试请求失败"),
+  });
+
   const updateGeneral = useMutation({
     ...updateGeneralToolPolicyMutation(),
     onSuccess: () => toast.success("已更新通用执行预算"),
@@ -561,6 +580,16 @@ function ToolsTab({
                             {tool.related_label ?? "相关页面"}
                             <ArrowUpRightIcon data-icon="inline-end" className="size-3.5" />
                           </Link>
+                        </Button>
+                      )}
+                      {tool.id === "azuriom_lookup" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={testAzuriom.isPending}
+                          onClick={() => testAzuriom.mutate({})}
+                        >
+                          <ZapIcon data-icon="inline-start" /> {testAzuriom.isPending ? "测试中…" : "测试连接"}
                         </Button>
                       )}
                       {tool.id === "check_provenance" && (

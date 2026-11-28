@@ -529,7 +529,8 @@ function ScopeOverrideEditor({
 
   const ensureOverride = (path: string[]) => {
     if (!presentKeys.has(pathKey(path))) {
-      setDoc((cur) => setAt(cur, path, getAt(inherited, path)));
+      const initial = pathKey(path) === "access.role_rules" ? {} : getAt(inherited, path);
+      setDoc((cur) => setAt(cur, path, initial));
     }
   };
 
@@ -546,26 +547,25 @@ function ScopeOverrideEditor({
   const toggleMemoryScopeList = (field: MemoryScopeListField, scopeId: string) =>
     toggleStringList(["memory", field], scopeId);
 
+  const roleRulePath = (roleId: string) => ["access", "role_rules", roleId];
+  type RolePermission = "bypass_channel_privacy" | "azuriom_lookup_others";
+
   const addRoleRule = (roleId: string) => {
-    const path = ["access", "role_rules"];
-    const current = getAt(doc, path) ?? getAt(inherited, path);
-    const map = isPlainObject(current) ? { ...current } : {};
-    if (!(roleId in map)) {
-      map[roleId] = { allow_bot: null, tools_allow: [], tools_deny: [], bypass_channel_privacy: false };
-      setDoc((cur) => setAt(cur, path, map));
-    }
+    const path = roleRulePath(roleId);
+    setDoc((cur) => (getAt(cur, path) === undefined ? setAt(cur, path, {}) : cur));
   };
 
-  const toggleBypassPrivacy = (roleId: string) => {
-    const path = ["access", "role_rules"];
-    const current = getAt(doc, path) ?? getAt(inherited, path);
-    const map = isPlainObject(current) ? { ...current } : {};
-    const existing = isPlainObject(map[roleId])
-      ? map[roleId]
-      : { allow_bot: null, tools_allow: [], tools_deny: [], bypass_channel_privacy: false };
-    map[roleId] = { ...existing, bypass_channel_privacy: !existing.bypass_channel_privacy };
-    setDoc((cur) => setAt(cur, path, map));
+  const effectiveRolePermission = (value: Record<string, unknown>, path: string[]) =>
+    (getAt(value, path) ?? getAt(inherited, path)) === true;
+
+  const toggleRoleRule = (roleId: string, field: RolePermission) => {
+    const path = [...roleRulePath(roleId), field];
+    setDoc((cur) => setAt(cur, path, !effectiveRolePermission(cur, path)));
   };
+
+  const toggleBypassPrivacy = (roleId: string) => toggleRoleRule(roleId, "bypass_channel_privacy");
+
+  const toggleAzuriomLookupOthers = (roleId: string) => toggleRoleRule(roleId, "azuriom_lookup_others");
 
   const effStringSet = (path: string[]) => {
     const raw = getAt(doc, path) ?? getAt(inherited, path);
@@ -578,8 +578,12 @@ function ScopeOverrideEditor({
   const effReadableScopes = effStringSet(["memory", "readable_by_scopes"]);
   const effCrossAllow = effStringSet(["memory", "cross_channel_allow"]);
   const effCrossDeny = effStringSet(["memory", "cross_channel_deny"]);
-  const effRoleRulesRaw = getAt(doc, ["access", "role_rules"]) ?? getAt(inherited, ["access", "role_rules"]);
-  const effRoleRules = isPlainObject(effRoleRulesRaw) ? effRoleRulesRaw : {};
+  const roleRuleIds = new Set(
+    [inherited, doc].flatMap((value) => {
+      const rules = getAt(value, ["access", "role_rules"]);
+      return isPlainObject(rules) ? Object.keys(rules) : [];
+    }),
+  );
 
   const scopeItems: { id: string; label: string; isCategory: boolean }[] = [];
   if (guildTree) {
@@ -598,7 +602,7 @@ function ScopeOverrideEditor({
     effAllowed.size +
     effDenied.size +
     effReadableRoles.size +
-    Object.keys(effRoleRules).length;
+    roleRuleIds.size;
   const activeScopeHits = effReadableScopes.size + effCrossAllow.size + effCrossDeny.size;
 
   return (
@@ -647,8 +651,9 @@ function ScopeOverrideEditor({
                       const inAllow = effAllowed.has(r.role_id);
                       const inDeny = effDenied.has(r.role_id);
                       const inReadable = effReadableRoles.has(r.role_id);
-                      const ruleObj = effRoleRules[r.role_id];
-                      const bypass = isPlainObject(ruleObj) && !!ruleObj.bypass_channel_privacy;
+                      const path = roleRulePath(r.role_id);
+                      const bypass = effectiveRolePermission(doc, [...path, "bypass_channel_privacy"]);
+                      const lookupOthers = effectiveRolePermission(doc, [...path, "azuriom_lookup_others"]);
                       return (
                         <div key={r.role_id} className="flex flex-wrap items-center gap-1 text-xs">
                           <span className="min-w-24 flex-1 truncate font-medium" title={`${r.name} (${r.role_id})`}>
@@ -687,6 +692,15 @@ function ScopeOverrideEditor({
                             onClick={() => toggleBypassPrivacy(r.role_id)}
                           >
                             {bypass ? "已绕过隐私" : "+绕过隐私"}
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant={lookupOthers ? "default" : "outline"}
+                            className="h-6 px-1.5 text-[11px]"
+                            title="允许该角色在普通对话中查他人绑定或按 SteamID 反查 KOOK"
+                            onClick={() => toggleAzuriomLookupOthers(r.role_id)}
+                          >
+                            {lookupOthers ? "可查他人绑定" : "+查他人绑定"}
                           </Button>
                           <Button
                             size="xs"
@@ -833,7 +847,7 @@ function ScopeOverrideEditor({
                               value={pathKey(l.path)}
                               keywords={[SECTION_LABELS[section] ?? section, l.schema.description ?? ""]}
                               onSelect={() => {
-                                setDoc(setAt(doc, l.path, getAt(inherited, l.path)));
+                                ensureOverride(l.path);
                                 setPicking(false);
                               }}
                             >

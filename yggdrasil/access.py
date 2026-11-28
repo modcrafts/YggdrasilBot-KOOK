@@ -97,3 +97,13 @@ def can_bypass_channel_privacy(settings: Settings, role_ids: Collection[str]) ->
     if not rules or not role_ids:
         return False
     return any(rules[rid].bypass_channel_privacy for raw in role_ids if (rid := str(raw).strip()) in rules)
+
+
+def can_lookup_other_identities(
+    settings: Settings, user_id: str, role_ids: Collection[str], superusers: Collection[str]
+) -> bool:
+    """Whether a speaker may look up other members' Azuriom bindings."""
+    if user_id in superusers:
+        return True
+    rules = settings.access.role_rules
+    return any(rules[rid].azuriom_lookup_others for rid in role_ids if rid in rules)

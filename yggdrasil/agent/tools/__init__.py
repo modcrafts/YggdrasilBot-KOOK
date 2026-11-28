@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from pydantic_ai import RunContext, Tool
 
 from yggdrasil.agent.deps import Deps
-from yggdrasil.agent.tools import attachments, gmod, history, images, web
+from yggdrasil.agent.tools import attachments, azuriom, gmod, history, images, web
 from yggdrasil.agent.tools.base import ToolResult, chat_tool
 from yggdrasil.core.log import LOGGER
 from yggdrasil.kook.model import KookError
@@ -31,13 +31,22 @@ ALL_TOOLS: dict[str, Callable[..., Awaitable[ToolResult]]] = {
     "generate_image": images.generate_image,
     "gmod_queue_lookup": gmod.gmod_queue_lookup,
     "gmod_queue_list": gmod.gmod_queue_list,
+    "azuriom_lookup": azuriom.azuriom_lookup,
 }
 
 SANDBOX = "sandbox"
 _HANDLER_EXCLUDED: dict[str, frozenset[str]] = {
     "chat": frozenset(),
     "tldr": frozenset(
-        {"get_profile", "generate_image", "check_provenance", "gmod_queue_lookup", "gmod_queue_list", SANDBOX}
+        {
+            "get_profile",
+            "generate_image",
+            "check_provenance",
+            "gmod_queue_lookup",
+            "gmod_queue_list",
+            "azuriom_lookup",
+            SANDBOX,
+        }
     ),
 }
 

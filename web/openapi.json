@@ -1273,6 +1273,7 @@
                 "generate_image",
                 "gmod_queue_lookup",
                 "gmod_queue_list",
+                "azuriom_lookup",
                 "sandbox"
               ],
               "type": "string",
@@ -1307,6 +1308,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/azuriom/test": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Test Azuriom Tool",
+        "description": "Test Ygg Bridge connectivity using the saved credentials and global timeout.",
+        "operationId": "test_azuriom_tool",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzuriomTestOut"
                 }
               }
             }
@@ -5486,6 +5509,83 @@
         ],
         "title": "ArchiveSmallOut"
       },
+      "AzuriomTestOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint",
+            "default": ""
+          },
+          "plugin": {
+            "type": "string",
+            "title": "Plugin",
+            "default": ""
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": ""
+          },
+          "game": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game"
+          },
+          "kook_accounts_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kook Accounts Ready"
+          },
+          "kook_account_model": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kook Account Model"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "latency_ms"
+        ],
+        "title": "AzuriomTestOut"
+      },
       "BalanceAmount": {
         "properties": {
           "label": {
@@ -9127,7 +9227,9 @@
                 "gmod_queue_lookup",
                 "gmod_queue_list",
                 "gmod_queue_singlepass",
-                "gmod_queue_letin"
+                "gmod_queue_letin",
+                "azuriom_lookup",
+                "azuriom_health"
               ]
             },
             "type": "array",
@@ -9184,7 +9286,9 @@
               "gmod_queue_lookup",
               "gmod_queue_list",
               "gmod_queue_singlepass",
-              "gmod_queue_letin"
+              "gmod_queue_letin",
+              "azuriom_lookup",
+              "azuriom_health"
             ],
             "title": "Id"
           },
@@ -9199,7 +9303,8 @@
               "config",
               "kook",
               "moderation",
-              "gmod"
+              "gmod",
+              "azuriom"
             ],
             "title": "Category"
           },
@@ -11765,6 +11870,7 @@
               "generate_image",
               "gmod_queue_lookup",
               "gmod_queue_list",
+              "azuriom_lookup",
               "sandbox"
             ],
             "title": "Id"
@@ -11781,7 +11887,8 @@
               "memory",
               "render",
               "sandbox",
-              "gmod"
+              "gmod",
+              "azuriom"
             ],
             "title": "Category"
           },

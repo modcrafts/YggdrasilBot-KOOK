@@ -116,6 +116,48 @@ export type ArchiveSmallOut = {
 };
 
 /**
+ * AzuriomTestOut
+ */
+export type AzuriomTestOut = {
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Latency Ms
+     */
+    latency_ms: number;
+    /**
+     * Endpoint
+     */
+    endpoint?: string;
+    /**
+     * Plugin
+     */
+    plugin?: string;
+    /**
+     * Version
+     */
+    version?: string;
+    /**
+     * Game
+     */
+    game?: string | null;
+    /**
+     * Kook Accounts Ready
+     */
+    kook_accounts_ready?: boolean | null;
+    /**
+     * Kook Account Model
+     */
+    kook_account_model?: boolean | null;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
  * BalanceAmount
  */
 export type BalanceAmount = {
@@ -2206,7 +2248,7 @@ export type OpsRoleRule = {
      *
      * 允许该 KOOK 角色通过管理助手（ops）调用的工具子集
      */
-    tools?: Array<'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message' | 'gmod_servers' | 'gmod_ping' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'gmod_queue_singlepass' | 'gmod_queue_letin'>;
+    tools?: Array<'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message' | 'gmod_servers' | 'gmod_ping' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'gmod_queue_singlepass' | 'gmod_queue_letin' | 'azuriom_lookup' | 'azuriom_health'>;
     /**
      * Kook Write Actions
      *
@@ -2228,7 +2270,7 @@ export type OpsToolOut = {
     /**
      * Id
      */
-    id: 'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message' | 'gmod_servers' | 'gmod_ping' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'gmod_queue_singlepass' | 'gmod_queue_letin';
+    id: 'status' | 'get_settings' | 'settings_reference' | 'list_channels' | 'list_routes' | 'list_triggers' | 'list_reviews' | 'recent_invocations' | 'list_events' | 'kook_api' | 'update_settings' | 'set_channel' | 'set_guild' | 'sync_kook' | 'backfill_channel' | 'decide_review' | 'save_trigger' | 'delete_trigger' | 'set_route' | 'undo_last_change' | 'recall_message' | 'gmod_servers' | 'gmod_ping' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'gmod_queue_singlepass' | 'gmod_queue_letin' | 'azuriom_lookup' | 'azuriom_health';
     /**
      * Name
      */
@@ -2236,7 +2278,7 @@ export type OpsToolOut = {
     /**
      * Category
      */
-    category: 'read' | 'config' | 'kook' | 'moderation' | 'gmod';
+    category: 'read' | 'config' | 'kook' | 'moderation' | 'gmod' | 'azuriom';
     /**
      * Write
      */
@@ -3816,7 +3858,7 @@ export type ToolItemOut = {
     /**
      * Id
      */
-    id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'sandbox';
+    id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'azuriom_lookup' | 'sandbox';
     /**
      * Name
      */
@@ -3824,7 +3866,7 @@ export type ToolItemOut = {
     /**
      * Category
      */
-    category: 'web' | 'media' | 'memory' | 'render' | 'sandbox' | 'gmod';
+    category: 'web' | 'media' | 'memory' | 'render' | 'sandbox' | 'gmod' | 'azuriom';
     /**
      * Description
      */
@@ -5297,7 +5339,7 @@ export type UpdateToolConfigData = {
         /**
          * Tool Id
          */
-        tool_id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'sandbox';
+        tool_id: 'read_url' | 'web_search' | 'read_x' | 'search_x' | 'read_file' | 'view_image' | 'check_provenance' | 'search_history' | 'get_messages_around' | 'recent_chat' | 'lookup_glossary' | 'get_profile' | 'render_mermaid' | 'render_markdown' | 'render_html' | 'generate_image' | 'gmod_queue_lookup' | 'gmod_queue_list' | 'azuriom_lookup' | 'sandbox';
     };
     query?: never;
     url: '/tools/{tool_id}';
@@ -5320,6 +5362,22 @@ export type UpdateToolConfigResponses = {
 };
 
 export type UpdateToolConfigResponse = UpdateToolConfigResponses[keyof UpdateToolConfigResponses];
+
+export type TestAzuriomToolData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/tools/azuriom/test';
+};
+
+export type TestAzuriomToolResponses = {
+    /**
+     * Successful Response
+     */
+    200: AzuriomTestOut;
+};
+
+export type TestAzuriomToolResponse = TestAzuriomToolResponses[keyof TestAzuriomToolResponses];
 
 export type TestProvenanceToolData = {
     body: ProvenanceTestIn;

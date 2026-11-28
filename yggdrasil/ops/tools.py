@@ -41,6 +41,7 @@ from yggdrasil.kv import redis_client
 from yggdrasil.people import label, names_in_guilds, self_label
 from yggdrasil.runtime import snapshot
 from yggdrasil.settings import OpsToolName, Settings
+from yggdrasil.tools.azuriom import AzuriomError, health_check, lookup_by_kook, lookup_by_steam
 from yggdrasil.tools.errors import ToolError
 from yggdrasil.transcript.notes import TraceNotes
 
@@ -48,7 +49,7 @@ _UNDO_KEEP = 20
 _UNDO_TTL_S = 7 * 86400
 
 ScopeLevel = Literal["global", "guild", "category", "channel"]
-OpsToolCategory = Literal["read", "config", "kook", "moderation", "gmod"]
+OpsToolCategory = Literal["read", "config", "kook", "moderation", "gmod", "azuriom"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -844,6 +845,37 @@ async def kook_api(
     return text
 
 
+@_op("azuriom_lookup")
+async def azuriom_lookup(ctx: RunContext[OpsDeps], kook_user_id: str | None = None, steamid: str | None = None) -> str:
+    """双向查询任意 Azuriom 账号绑定。二选一填 KOOK 用户 ID（或提及）或 SteamID64 / STEAM_0/1:X:Y。"""
+    kook_user_id = (kook_user_id or "").strip()
+    steamid = (steamid or "").strip()
+    if bool(kook_user_id) == bool(steamid):
+        raise ToolError("必须且只能传入 kook_user_id 或 steamid 之一")
+    deps = ctx.deps
+    timeout = snapshot().settings(channel_id=deps.channel_id, guild_id=deps.guild_id).tools.azuriom_timeout_s
+    try:
+        if kook_user_id:
+            result = await lookup_by_kook(kook_user_id, timeout_s=timeout)
+        else:
+            result = await lookup_by_steam(steamid, timeout_s=timeout)
+    except (ValueError, AzuriomError) as e:
+        raise ToolError(str(e)) from e
+    return json.dumps(result, ensure_ascii=False)
+
+
+@_op("azuriom_health")
+async def azuriom_health(ctx: RunContext[OpsDeps]) -> str:
+    """检查 Azuriom Ygg Bridge 连通性、延迟、版本和 KOOK 账号模块状态。"""
+    deps = ctx.deps
+    timeout = snapshot().settings(channel_id=deps.channel_id, guild_id=deps.guild_id).tools.azuriom_timeout_s
+    try:
+        result = await health_check(timeout_s=timeout)
+    except AzuriomError as e:
+        raise ToolError(str(e)) from e
+    return json.dumps(result, ensure_ascii=False)
+
+
 @_op("gmod_servers")
 async def gmod_servers(ctx: RunContext[OpsDeps]) -> str:
     """列出已配置的 GMod 服务器及其通信在线状态、已注册的 Lua 动作列表与心跳元数据。"""
@@ -1073,6 +1105,24 @@ OPS_TOOL_SPECS: tuple[OpsToolSpec, ...] = (
         False,
         "撤回/删除被回复的那条机器人消息。",
         recall_message,
+    ),
+    OpsToolSpec(
+        "azuriom_lookup",
+        "Azuriom 绑定查询",
+        "azuriom",
+        False,
+        False,
+        "按任意 KOOK ID 或 SteamID 查询绑定。",
+        azuriom_lookup,
+    ),
+    OpsToolSpec(
+        "azuriom_health",
+        "Ygg Bridge 连通性",
+        "azuriom",
+        False,
+        False,
+        "检查插件连通性与 KOOK 账号模块状态。",
+        azuriom_health,
     ),
     OpsToolSpec(
         "gmod_servers",

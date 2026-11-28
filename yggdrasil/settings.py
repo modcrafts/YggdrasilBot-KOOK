@@ -31,6 +31,7 @@ ToolName = Literal[
     "generate_image",
     "gmod_queue_lookup",
     "gmod_queue_list",
+    "azuriom_lookup",
     "sandbox",
 ]
 
@@ -63,6 +64,12 @@ class RoleAccessRule(BaseModel):
     bypass_channel_privacy: bool = Field(
         default=False,
         description="允许该角色在当前配置范围内绕过跨频道隐私与引用限制（可读取同服所有已启用频道；支持按服务器/分组/频道四级覆盖）",
+    )
+
+    azuriom_lookup_others: bool = Field(
+        default=False,
+        description="允许该角色在普通对话中使用 azuriom_lookup 查询他人 KOOK 绑定或通过 SteamID 反查 KOOK 账号"
+        "（默认仅限查本人；超级管理员始终拥有此权限）",
     )
 
 
@@ -286,6 +293,7 @@ class ToolSettings(BaseModel):
             "render_html",
             "gmod_queue_lookup",
             "gmod_queue_list",
+            "azuriom_lookup",
             "sandbox",
         ],
         description="启用的工具（按全局/服务器/分组/频道可勾选开关）；sandbox 表示整套工作区工具；"
@@ -335,6 +343,7 @@ class ToolSettings(BaseModel):
         description="OpenAI Content Provenance 检测（check_provenance）使用的提供商名称或 ID；"
         "留空时优先使用工具独立凭据，其次自动匹配控制台里指向 api.openai.com 的提供商，或回退到环境变量 OPENAI_API_KEY",
     )
+    azuriom_timeout_s: int = Field(default=10, ge=3, le=60, description="Azuriom Ygg Bridge 插件接口请求超时（秒）")
     provenance_timeout_s: int = Field(default=30, ge=5, le=120, description="check_provenance 请求超时时间（秒）")
     provenance_max_mb: int = Field(
         default=25, ge=1, le=25, description="check_provenance 单文件上传大小上限（MB，OpenAI 上限 25MB）"
@@ -427,6 +436,8 @@ OpsToolName = Literal[
     "gmod_queue_list",
     "gmod_queue_singlepass",
     "gmod_queue_letin",
+    "azuriom_lookup",
+    "azuriom_health",
 ]
 
 

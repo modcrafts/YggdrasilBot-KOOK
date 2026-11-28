@@ -11,11 +11,12 @@ import httpx
 import pytest
 
 from yggdrasil.admin import common as admin_common
-from yggdrasil.admin import tools_api
+from yggdrasil.admin import settings_api, tools_api
 from yggdrasil.config import APP_CONFIG
 from yggdrasil.crypto import decrypt, encrypt
-from yggdrasil.db.models import Provider, SearchProvider, SettingsDoc, TaskRoute
-from yggdrasil.runtime import GMOD_SERVERS_KEY
+from yggdrasil.db.models import Channel, Guild, Provider, SearchProvider, SettingsDoc, TaskRoute
+from yggdrasil.runtime import GMOD_SERVERS_KEY, TOOL_SECRETS_KEY, ToolSecretInfo
+from yggdrasil.tools.azuriom import AzuriomAuthError
 from yggdrasil.tools.provenance import ProvenanceReport, ProvenanceSignal
 
 
@@ -34,6 +35,10 @@ class _FakeSession:
     async def get(self, model: type[Any], key: Any) -> Any:
         if model is SettingsDoc:
             return self._store["settings"].get(key)
+        if model is Guild:
+            return self._store["guilds"].get(key)
+        if model is Channel:
+            return self._store["channels"].get(key)
         return None
 
     async def scalars(self, stmt: Any) -> _FakeScalars:
@@ -63,6 +68,8 @@ class _FakeSession:
 def fake_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     store: dict[str, Any] = {
         "settings": {},
+        "guilds": {},
+        "channels": {},
         "providers": [
             Provider(
                 id=1,
@@ -112,6 +119,7 @@ def fake_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         yield _FakeSession(store)
 
     monkeypatch.setattr(tools_api, "get_session", _session)
+    monkeypatch.setattr(settings_api, "get_session", _session)
     monkeypatch.setattr(admin_common, "get_session", _session)
     monkeypatch.setattr(APP_CONFIG, "openai_api_key", "")
     return store
@@ -124,7 +132,7 @@ async def test_tools_overview_and_per_tool_config_updates(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     items = {i["id"]: i for i in body["items"]}
-    assert len(items) == 19
+    assert len(items) == 20
     assert items["check_provenance"]["status"] == "ready"
     assert "OpenAI Official" in items["check_provenance"]["status_label"]
     assert items["check_provenance"]["provider_param_key"] == "provenance_provider"
@@ -171,6 +179,145 @@ async def test_gmod_queue_tools_diagnostics(
         else:
             assert item["status"] == "unconfigured"
             assert "GMod 通信" in item["status_detail"]
+
+
+@pytest.mark.parametrize(
+    ("secret", "message"),
+    [
+        ({}, "未启用独立凭据"),
+        ({"enabled": True}, "缺少网站地址"),
+        ({"enabled": True, "base_url": "http://azuriom"}, "缺少 API Token"),
+    ],
+)
+async def test_azuriom_tool_diagnostics(
+    client: httpx.AsyncClient, fake_db: dict[str, Any], secret: dict[str, Any], message: str
+) -> None:
+    fake_db["settings"][TOOL_SECRETS_KEY] = SettingsDoc(key=TOOL_SECRETS_KEY, value={"azuriom_lookup": secret})
+    overview = await client.get("/api/tools")
+    assert overview.status_code == 200, overview.text
+    item = next(i for i in overview.json()["items"] if i["id"] == "azuriom_lookup")
+    assert item["category"] == "azuriom"
+    assert item["handlers"] == ["chat"]
+    assert item["status"] == "unconfigured"
+    assert message in item["status_label"]
+    probe = await client.post("/api/tools/azuriom/test")
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["ok"] is False
+    assert message in probe.json()["error"]
+
+
+async def test_azuriom_encrypted_secret_and_online_test(
+    client: httpx.AsyncClient, fake_db: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = "bridge-token-9876"
+    response = await client.put(
+        "/api/tools/azuriom_lookup",
+        json={
+            "params": {"azuriom_timeout_s": 37},
+            "secret": {
+                "enabled": True,
+                "base_url": "http://azuriom:8080",
+                "api_key": token,
+                "headers": {"x-test": "1"},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    item = next(i for i in response.json()["items"] if i["id"] == "azuriom_lookup")
+    assert item["status"] == "ready"
+    assert item["params"]["azuriom_timeout_s"] == 37
+    assert item["secret"]["api_key_masked"].endswith("9876")
+    assert token not in response.text
+    saved = fake_db["settings"][TOOL_SECRETS_KEY].value["azuriom_lookup"]["api_key_enc"]
+    assert token != saved
+    assert decrypt(saved.encode()) == token
+    assert token not in str(fake_db["settings"]["global"].value)
+    assert all(token not in str(audit.detail) for audit in fake_db["audits"])
+
+    expected = {
+        "ok": True,
+        "latency_ms": 14,
+        "endpoint": "http://azuriom:8080/api/ygg-bridge/v1/health",
+        "plugin": "ygg-bridge",
+        "version": "1.0.0",
+        "game": "steam",
+        "kook_accounts_ready": False,
+        "kook_account_model": True,
+        "error": None,
+    }
+
+    async def healthy(*, secret: ToolSecretInfo, timeout_s: float) -> dict[str, Any]:
+        assert secret == ToolSecretInfo(True, "http://azuriom:8080", token, {"x-test": "1"})
+        assert timeout_s == 37
+        return expected
+
+    monkeypatch.setattr(tools_api, "health_check", healthy)
+    probe = await client.post("/api/tools/azuriom/test")
+    assert probe.status_code == 200, probe.text
+    assert probe.json() == expected
+
+    async def unauthorized(**kwargs: Any) -> dict[str, Any]:
+        raise AzuriomAuthError("Ygg Bridge 鉴权失败（401）")
+
+    monkeypatch.setattr(tools_api, "health_check", unauthorized)
+    probe = await client.post("/api/tools/azuriom/test")
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["ok"] is False
+    assert "鉴权失败" in probe.json()["error"]
+
+
+async def test_scope_role_defaults_follow_parent_after_sparse_edit(
+    client: httpx.AsyncClient, fake_db: dict[str, Any]
+) -> None:
+    guild = Guild(
+        guild_id="g",
+        name="服务器",
+        settings={
+            "access": {"role_rules": {"10": {"azuriom_lookup_others": True}, "30": {"azuriom_lookup_others": True}}}
+        },
+    )
+    category = Channel(
+        channel_id="cat",
+        guild_id="g",
+        is_category=True,
+        name="分组",
+        settings={"access": {"role_rules": {"10": {"bypass_channel_privacy": True}}}},
+    )
+    channel = Channel(
+        channel_id="ch",
+        guild_id="g",
+        parent_id="cat",
+        is_category=False,
+        name="频道",
+        settings={"access": {"role_rules": {"20": {"tools_deny": ["web_search"]}}}},
+    )
+    fake_db["guilds"]["g"] = guild
+    fake_db["channels"].update({"cat": category, "ch": channel})
+    path = "/api/settings/scopes/channel/ch"
+    view = await client.get(path)
+    assert view.status_code == 200, view.text
+    defaults = view.json()["defaults"]["access"]["role_rules"]
+    assert defaults["10"]["azuriom_lookup_others"] is True
+    assert defaults["10"]["bypass_channel_privacy"] is True
+    assert "20" not in defaults
+    assert view.json()["effective"]["access"]["role_rules"]["10"]["azuriom_lookup_others"] is True
+
+    overrides = {
+        "access": {"role_rules": {"20": {"tools_deny": ["web_search"]}, "10": {"azuriom_lookup_others": False}}}
+    }
+    saved = await client.put(path, json=overrides)
+    assert saved.status_code == 200, saved.text
+    assert channel.settings == overrides
+    effective = saved.json()["effective"]["access"]["role_rules"]
+    assert effective["10"]["azuriom_lookup_others"] is False
+    assert effective["10"]["bypass_channel_privacy"] is True
+    assert effective["30"]["azuriom_lookup_others"] is True
+
+    guild.settings = {}
+    revoked = await client.get(path)
+    assert revoked.status_code == 200, revoked.text
+    assert "30" not in revoked.json()["effective"]["access"]["role_rules"]
+    assert revoked.json()["defaults"]["access"]["role_rules"]["10"]["azuriom_lookup_others"] is False
 
 
 async def test_check_provenance_standalone_encrypted_secret_and_online_test(

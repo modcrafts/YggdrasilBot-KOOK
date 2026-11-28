@@ -36,6 +36,7 @@ from yggdrasil.runtime import (
     _parse_gmod_servers,
 )
 from yggdrasil.settings import OpsRoleRule, OpsToolName, Settings, ToolName, ToolSettings, merge_settings
+from yggdrasil.tools.azuriom import AzuriomConfigError, AzuriomError, health_check, resolve_azuriom_secret
 from yggdrasil.tools.provenance import (
     OPENAI_DEFAULT_BASE,
     PROVENANCE_MAX_BYTES,
@@ -48,7 +49,7 @@ from yggdrasil.tools.search import WEB_KINDS
 
 router = APIRouter(tags=["tools"])
 
-ToolCategory = Literal["web", "media", "memory", "render", "sandbox", "gmod"]
+ToolCategory = Literal["web", "media", "memory", "render", "sandbox", "gmod", "azuriom"]
 ToolStatus = Literal["ready", "warning", "unconfigured", "disabled"]
 SkillHandler = Literal["chat", "tldr"]
 ParamValueType = Literal["integer", "number", "boolean", "string", "enum"]
@@ -69,6 +70,7 @@ _PARAM_UI_META: dict[str, tuple[str, str, str]] = {
     "search_results": ("默认返回结果数", "条", ""),
     "search_x_default_hours": ("默认回溯时间", "小时", ""),
     "provenance_provider": ("指定提供商", "", ""),
+    "azuriom_timeout_s": ("接口请求超时", "秒", ""),
     "provenance_timeout_s": ("请求超时时间", "秒", ""),
     "provenance_max_mb": ("单文件上传上限", "MB", ""),
     "file_max_mb": ("附件下载上限", "MB", ""),
@@ -328,6 +330,18 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handlers=("chat",),
     ),
     ToolSpec(
+        id="azuriom_lookup",
+        name="Azuriom 绑定查询",
+        category="azuriom",
+        description="查询 KOOK、Steam 与 Azuriom 网站账号的绑定关系。Steam 输入支持 SteamID64 或 STEAM_0/1:X:Y。",
+        handlers=("chat",),
+        param_keys=("azuriom_timeout_s",),
+        supports_secret=True,
+        secret_default_base_url="https://example.com",
+        secret_hint="填写 Azuriom 网站根地址（如 https://example.com），"
+        "API Key 填 Ygg Bridge 插件后台生成的 Bearer Token；普通对话与管理助手（ops）共用此凭据。",
+    ),
+    ToolSpec(
         id="sandbox",
         name="沙盒工作区套件",
         category="sandbox",
@@ -465,6 +479,18 @@ class ProvenanceTestOut(BaseModel):
     filename: str = ""
     any_detected: bool | None = None
     report: str | None = None
+    error: str | None = None
+
+
+class AzuriomTestOut(BaseModel):
+    ok: bool
+    latency_ms: int
+    endpoint: str = ""
+    plugin: str = ""
+    version: str = ""
+    game: str | None = None
+    kook_accounts_ready: bool | None = None
+    kook_account_model: bool | None = None
     error: str | None = None
 
 
@@ -738,6 +764,14 @@ def _diagnose_tool(
         if spec.id == "generate_image":
             return "disabled", "默认关闭", "需配置 image 模型路由后按需开启"
         return "disabled", "全局默认关闭", "可在「服务器与频道」单独覆盖开启"
+
+    if spec.id == "azuriom_lookup":
+        sec = _secret_info(secret_raw)
+        try:
+            resolve_azuriom_secret(sec)
+        except AzuriomConfigError as e:
+            return "unconfigured", str(e).split("，", 1)[0], str(e)
+        return "ready", "独立凭据", "已配置 Ygg Bridge 网站地址与 API Token"
 
     if spec.category == "gmod":
         if not enabled_gmod_servers:
@@ -1195,6 +1229,37 @@ async def update_tool_config(tool_id: ToolName, body: ToolConfigPatchIn, actor: 
 
         c.detail = {"tool": tool_id, "params": list(patch.keys()), "secret": secret_audit}
     return await _load_tools_overview()
+
+
+@router.post("/tools/azuriom/test")
+async def test_azuriom_tool() -> AzuriomTestOut:
+    """Test Ygg Bridge connectivity using the saved credentials and global timeout."""
+    async with get_session() as s:
+        global_row = await s.get(SettingsDoc, "global")
+        secrets_row = await s.get(SettingsDoc, TOOL_SECRETS_KEY)
+
+    global_val = global_row.value if global_row and isinstance(global_row.value, dict) else {}
+    secrets_val = secrets_row.value if secrets_row and isinstance(secrets_row.value, dict) else {}
+    sec_raw = secrets_val.get("azuriom_lookup")
+    secret = _secret_info(sec_raw if isinstance(sec_raw, dict) else None)
+    timeout = merge_settings(global_val).tools.azuriom_timeout_s
+    started = time.perf_counter()
+    try:
+        result = await health_check(secret=secret, timeout_s=timeout)
+    except AzuriomError as e:
+        return AzuriomTestOut(ok=False, latency_ms=int((time.perf_counter() - started) * 1000), error=str(e))
+    return AzuriomTestOut(
+        ok=True,
+        latency_ms=result["latency_ms"],
+        endpoint=result["endpoint"],
+        plugin=result["plugin"] if isinstance(result.get("plugin"), str) else "",
+        version=result["version"] if isinstance(result.get("version"), str) else "",
+        game=result["game"] if isinstance(result.get("game"), str) else None,
+        kook_accounts_ready=result["kook_accounts_ready"]
+        if isinstance(result.get("kook_accounts_ready"), bool)
+        else None,
+        kook_account_model=result["kook_account_model"] if isinstance(result.get("kook_account_model"), bool) else None,
+    )
 
 
 @router.post("/tools/check_provenance/test")

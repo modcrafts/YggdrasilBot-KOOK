@@ -24,6 +24,7 @@ from yggdrasil.ops.tools import (
     sync_kook,
     update_settings,
 )
+from yggdrasil.prompts import render
 from yggdrasil.runtime import ChannelInfo, GuildInfo, Snapshot, TriggerRule
 from yggdrasil.settings import OpsRoleRule, Settings
 from yggdrasil.tools.errors import ToolError
@@ -50,7 +51,7 @@ def test_resolve_ops_grant_and_tool_filtering() -> None:
     s.ops.kook_write_actions = ["/message/pin", "/message/unpin", "/guild/nickname"]
     s.ops.role_rules = {
         "101": OpsRoleRule(
-            tools=["status", "list_channels", "kook_api", "sync_kook"],
+            tools=["status", "list_channels", "kook_api", "sync_kook", "azuriom_lookup", "azuriom_health"],
             kook_write_actions=["/message/pin", "/guild/kickout", "/guild/leave"],
             guild_only=True,
         ),
@@ -77,13 +78,14 @@ def test_resolve_ops_grant_and_tool_filtering() -> None:
     assert mod_grant is not None
     assert mod_grant.is_superuser is False
     assert mod_grant.guild_only is True
-    assert mod_grant.allowed_tools == frozenset({"status", "list_channels", "kook_api"})
+    expected = {"status", "list_channels", "kook_api", "azuriom_lookup", "azuriom_health"}
+    assert mod_grant.allowed_tools == expected
     assert mod_grant.kook_write_actions == frozenset({"/message/pin"})
 
     # ops_tools() only exposes tools in grant.allowed_tools
     deps = OpsDeps(kook=FakeKook(), user_id="u-mod", channel_id="ch-1", guild_id="g-1", grant=mod_grant)
     exposed = {t.name for t in ops_tools(deps)}
-    assert exposed == {"status", "list_channels", "kook_api"}
+    assert exposed == expected
 
     # TriggerIndex allows matching default superuser-only admin.ops rule when ops_authorized=True
     snap = Snapshot(
@@ -192,3 +194,22 @@ async def test_guild_only_security_guards_block_escalation_and_cross_guild(
     assert params["guild_id"] == "g-1"
     with pytest.raises(ToolError, match="不属于本服务器"):
         ops_tools_mod._assert_kook_write_in_guild(deps, "/message/pin", {"target_id": "ch-2"})  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize(
+    "allowed_tools", [(), ("azuriom_lookup",), ("azuriom_health",), ("azuriom_lookup", "azuriom_health")]
+)
+def test_ops_prompt_only_advertises_granted_azuriom_tools(allowed_tools: tuple[str, ...]) -> None:
+    prompt = render(
+        "ops_system",
+        now="今天",
+        where="测试频道",
+        in_channel=True,
+        nonce="test",
+        is_superuser=False,
+        guild_only=True,
+        allowed_tools=allowed_tools,
+        kook_write_actions=(),
+    )
+    for name in ("azuriom_lookup", "azuriom_health"):
+        assert (name in prompt) == (name in allowed_tools)

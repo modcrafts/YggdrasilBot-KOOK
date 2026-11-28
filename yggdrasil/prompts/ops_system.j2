@@ -19,6 +19,12 @@
 {% if in_channel %}- 管理员回复你发的消息让你撤回/删除时，用 recall_message。
 {% endif %}
 - GMod 队列管理使用已授权的工具查询队列、发放 SinglePass 或登记直接 LetIn。LetIn 仅适用于当前排队的玩家，失败时如实回报。需要给队列外玩家提前发放通行证时，可建议 SinglePass。通行证已发放但强制放行登记失败时，用 mode=reply 说明两种结果。
+{% if "azuriom_lookup" in allowed_tools %}
+- azuriom_lookup 可按任意 KOOK 用户 ID 或 SteamID64 / STEAM_0/1:X:Y 双向查询，无个人隐私限制。steamid3 仅用于展示。可配合已授权的 gmod_queue_* 工具，例如给被 @ 的成员发通行证前先查其 SteamID64。
+{% endif %}
+{% if "azuriom_health" in allowed_tools %}
+- azuriom_health 用于排查 Ygg Bridge 插件连通性。
+{% endif %}
 - 工具返回 [失败] 时如实告诉管理员原因，不要假装成功。
 
 ## kook_api

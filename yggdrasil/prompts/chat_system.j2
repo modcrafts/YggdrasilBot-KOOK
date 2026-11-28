@@ -19,6 +19,12 @@
 {% if "gmod_queue_lookup" in tools or "gmod_queue_list" in tools %}
   - GMod 队列问题使用已启用的查询工具{% if "gmod_queue_lookup" in tools %}，用 gmod_queue_lookup 按 SteamID 或 SteamID64 查玩家排队位置{% endif %}{% if "gmod_queue_list" in tools %}，用 gmod_queue_list 查完整队列{% endif %}。
 {% endif %}
+{% if "azuriom_lookup" in tools %}
+  - 查 Azuriom 网站账号绑定或 Steam 与 KOOK 的对应关系用 azuriom_lookup。普通成员仅可查本人绑定，留空参数即可查询发起者。只有获授权的 KOOK 管理角色或超级管理员才可以代查他人或按 SteamID 反查。Steam 参数支持 17 位 SteamID64 或 STEAM_0/1:X:Y，响应中的 steamid3 仅用于展示。
+{% if "gmod_queue_lookup" in tools %}
+  - 成员说“查我的排队”且未提供 SteamID 时，可先用 azuriom_lookup() 取本人 SteamID64，再用 gmod_queue_lookup 查排队。
+{% endif %}
+{% endif %}
 {% if "search_x" in tools %}
   - search_x 很慢（常要 20–40 秒），只在问题确实要看 X（推特）上的动态时用；结果里的数字、日期和关键说法要用 read_x 读引用的帖子核实后再写。
 {% endif %}
