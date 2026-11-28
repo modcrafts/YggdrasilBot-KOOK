@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from yggdrasil.ingest.normalize import normalize
 from yggdrasil.kook.client import Kook
 from yggdrasil.settings import Settings
+from yggdrasil.tools.azuriom import CallerBindingCache
 from yggdrasil.transcript.notes import TraceNotes
 
 if TYPE_CHECKING:
@@ -96,3 +97,4 @@ class Deps:
     bridge: "RunBridge | None" = None
     role_ids: tuple[str, ...] = ()
     forum_thread_channels: dict[str, str] = field(default_factory=dict)  # thread_id -> forum channel_id
+    caller_binding: CallerBindingCache = field(default_factory=CallerBindingCache)

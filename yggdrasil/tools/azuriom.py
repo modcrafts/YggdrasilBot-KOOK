@@ -1,5 +1,6 @@
 """HTTP client for the Azuriom Ygg Bridge plugin."""
 
+import asyncio
 import re
 import time
 from ipaddress import IPv6Address
@@ -143,6 +144,36 @@ async def lookup_by_kook(kook_user_id: str, *, timeout_s: float = 10.0) -> dict[
     target = normalize_kook_user_id(kook_user_id)
     payload, _, _ = await _get(f"/identity/by-kook/{target}", timeout_s=timeout_s)
     return payload
+
+
+class CallerBindingCache:
+    """Share successful self-lookups between tools in a single chat invocation."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._verified: dict[str, tuple[dict[str, Any], str]] = {}
+
+    async def lookup(self, caller_id: str, *, timeout_s: float) -> tuple[dict[str, Any], str | None]:
+        async with self._lock:
+            if caller_id in self._verified:
+                return self._verified[caller_id]
+            binding = await lookup_by_kook(caller_id, timeout_s=timeout_s)
+            kook, steam = binding.get("kook"), binding.get("steam")
+            if (
+                binding.get("found") is True
+                and isinstance(kook, dict)
+                and kook.get("linked") is True
+                and kook.get("user_id") == caller_id
+                and isinstance(steam, dict)
+                and steam.get("linked") is True
+            ):
+                try:
+                    _, steamid64 = normalize_steamid(str(steam.get("steamid64") or ""))
+                except ValueError:
+                    return binding, None
+                self._verified[caller_id] = (binding, steamid64)
+                return binding, steamid64
+            return binding, None
 
 
 async def lookup_by_steam(steamid: str, *, timeout_s: float = 10.0) -> dict[str, Any]:

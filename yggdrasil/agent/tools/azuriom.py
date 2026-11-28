@@ -38,11 +38,14 @@ async def azuriom_lookup(ctx: RunContext[Deps], kook_user_id: str | None = None,
             result = await lookup_by_steam(steamid, timeout_s=timeout)
         else:
             target = normalize_kook_user_id(kook_user_id) if kook_user_id else deps.user_id
-            if target != deps.user_id and not allow_others:
+            if target == deps.user_id:
+                result, _ = await deps.caller_binding.lookup(deps.user_id, timeout_s=timeout)
+            elif allow_others:
+                result = await lookup_by_kook(target, timeout_s=timeout)
+            else:
                 raise ToolError(
                     "权限不足：出于隐私保护，普通成员只能查询自己本人的 Azuriom / Steam 绑定信息，不能查询他人。"
                 )
-            result = await lookup_by_kook(target, timeout_s=timeout)
     except (ValueError, AzuriomError) as e:
         raise ToolError(str(e)) from e
     return json.dumps(result, ensure_ascii=False)

@@ -22,7 +22,7 @@ from yggdrasil.gmod.server import build_gmod_app
 from yggdrasil.ops import tools as ops
 from yggdrasil.runtime import GModServerInfo, Snapshot
 from yggdrasil.settings import OpsToolName, Settings, ToolName
-from yggdrasil.tools import gmod_queue
+from yggdrasil.tools import azuriom
 
 SID = "STEAM_0:0:146595760"
 SID64 = "76561198253457248"
@@ -57,7 +57,7 @@ def linked_caller(monkeypatch: pytest.MonkeyPatch) -> None:
             "steam": {"linked": True, "steamid64": SID64},
         }
 
-    monkeypatch.setattr(gmod_queue, "lookup_by_kook", binding)
+    monkeypatch.setattr(azuriom, "lookup_by_kook", binding)
 
 
 @pytest.mark.parametrize(

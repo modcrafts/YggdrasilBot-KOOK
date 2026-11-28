@@ -1,5 +1,6 @@
 """Ygg Bridge response contract and chat/ops authorization."""
 
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
@@ -15,10 +16,11 @@ from yggdrasil.agent import bridge
 from yggdrasil.agent.deps import Deps, Handles
 from yggdrasil.agent.tools import ALL_TOOLS
 from yggdrasil.agent.tools import azuriom as chat_tools
+from yggdrasil.agent.tools import gmod as queue_tools
 from yggdrasil.ops import tools as ops
 from yggdrasil.runtime import ChannelInfo, Snapshot, ToolSecretInfo
 from yggdrasil.settings import RoleAccessRule, Settings
-from yggdrasil.tools import azuriom
+from yggdrasil.tools import azuriom, gmod_queue
 
 _PREFIX = "/api/ygg-bridge/v1"
 _BASE = "http://azuriom:8080"
@@ -319,6 +321,70 @@ async def test_chat_lookup_permission(
 
     assert ALL_TOOLS["azuriom_lookup"] is chat_tools.azuriom_lookup
     assert "azuriom_lookup" not in bridge.TOOLS
+
+
+async def test_self_binding_reused_by_queue_only_within_invocation(
+    snapshot: Callable[..., Snapshot], mock_bridge: Callable[..., list[httpx.Request]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot(tool_secrets={"azuriom_lookup": _SECRET}, superusers=frozenset({"123456"}))
+
+    def new_message() -> RunContext[Deps]:
+        deps = Deps(FakeKook(), "ch-1", "g-1", "123456", Settings(), Handles(), "chat")
+        return RunContext(deps=deps, model=TestModel(), usage=RunUsage())
+
+    linked = True
+
+    def respond(req: httpx.Request) -> httpx.Response:
+        user_id = req.url.path.rsplit("/", 1)[1]
+        steam = _FIRST if user_id == "123456" else _SECOND
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "found": linked,
+                "kook": {**_KOOK, "user_id": user_id},
+                "steam": {"linked": linked, **_steam_fields(steam)},
+            },
+        )
+
+    async def queue(server_id: str | None) -> dict[str, Any]:
+        return {
+            "active_tickets": [
+                {"steamid64": ident[1], "kind": "pass", "remaining_s": 12} for ident in (_FIRST, _SECOND)
+            ]
+        }
+
+    requests = mock_bridge(respond)
+    monkeypatch.setattr(gmod_queue, "list_queue", queue)
+    ctx = new_message()
+    await chat_tools.azuriom_lookup(ctx, kook_user_id="654321")
+    await chat_tools.azuriom_lookup(ctx, kook_user_id="(met)123456(met)")
+    tickets = await queue_tools.gmod_queue_list(ctx, view="tickets")
+    assert json.loads(str(tickets))["rows"] == [[_FIRST[1], "pass", 12]]
+    assert [req.url.path for req in requests] == [f"{_PREFIX}/identity/by-kook/{uid}" for uid in ("654321", "123456")]
+
+    linked = False
+    tickets = await queue_tools.gmod_queue_list(new_message(), view="tickets")
+    assert "无法确认调用者" in str(tickets)
+    assert len(requests) == 3
+    assert requests[-1].url.path == f"{_PREFIX}/identity/by-kook/123456"
+
+
+async def test_concurrent_self_lookups_share_one_verified_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+    payload = {"found": True, "kook": _KOOK, "steam": {"linked": True, **_steam_fields(_FIRST)}}
+
+    async def lookup(caller_id: str, *, timeout_s: float) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return payload
+
+    monkeypatch.setattr(azuriom, "lookup_by_kook", lookup)
+    cache = azuriom.CallerBindingCache()
+    results = await asyncio.gather(*(cache.lookup("123456", timeout_s=10) for _ in range(2)))
+    assert calls == 1
+    assert results == [(payload, _FIRST[1])] * 2
 
 
 async def test_ops_lookup_and_health(

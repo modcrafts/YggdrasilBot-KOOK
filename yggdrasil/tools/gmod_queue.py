@@ -7,8 +7,7 @@ from pydantic import Field
 from pydantic_ai import RunContext
 
 from yggdrasil.gmod import GModError, list_queue, lookup_queue, normalize_steamid
-from yggdrasil.runtime import snapshot
-from yggdrasil.tools.azuriom import AzuriomError, lookup_by_kook
+from yggdrasil.tools.azuriom import AzuriomError
 from yggdrasil.tools.errors import ToolError
 
 _PAGE_SIZE = 20
@@ -66,22 +65,11 @@ def _is_ops(ctx: RunContext[Any]) -> bool:
 
 async def _caller_steamid64(ctx: RunContext[Any]) -> str | None:
     deps = ctx.deps
-    timeout = snapshot().settings(channel_id=deps.channel_id, guild_id=deps.guild_id).tools.azuriom_timeout_s
     try:
-        binding = await lookup_by_kook(deps.user_id, timeout_s=timeout)
-        kook, steam = binding.get("kook"), binding.get("steam")
-        if (
-            binding.get("found") is True
-            and isinstance(kook, dict)
-            and kook.get("linked") is True
-            and kook.get("user_id") == deps.user_id
-            and isinstance(steam, dict)
-            and steam.get("linked") is True
-        ):
-            return normalize_steamid(str(steam.get("steamid64") or ""))[1]
+        _, steamid64 = await deps.caller_binding.lookup(deps.user_id, timeout_s=deps.settings.tools.azuriom_timeout_s)
+        return steamid64
     except (AzuriomError, ValueError):
-        pass
-    return None
+        return None
 
 
 def _owned(record: dict[str, Any], owner: str | None) -> bool:
